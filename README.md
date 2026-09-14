@@ -58,6 +58,13 @@ mixed content — so on Netlify or any HTTPS host the generator still works but
 the live controls stay disabled and say why. Serving locally also needs
 `cors_domains` in `moonraker.conf` to allow the page's origin.
 
+### On the TrueNAS
+
+`deploy/truenas/` has a Docker Compose stack that serves `console/` over plain
+HTTP on the LAN, which is what makes the live Moonraker controls work. See
+`deploy/truenas/README.md`. LAN only, deliberately - the page can move the
+toolhead.
+
 A published copy lives at:
 https://claude.ai/code/artifact/b2bf91ae-2da3-4bde-854e-c1375d9bcb47
 

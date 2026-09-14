@@ -1,0 +1,26 @@
+# PROCAM Trigger Console - static hosting on TrueNAS
+#
+# Serves console/ over plain HTTP on the LAN. Plain HTTP is deliberate: the
+# page talks to Moonraker at http://<printer>, and a browser blocks an HTTPS
+# page from reaching a plain-HTTP printer. Keeping both on HTTP is what makes
+# the live controls (jog test, test fire) work.
+#
+# LAN only. This is not behind Nginx Proxy Manager and not published through
+# Cloudflare, on purpose - the page can drive printer movement, so it should
+# not be reachable from outside the network.
+
+services:
+  procam-console:
+    image: nginx:alpine
+    container_name: procam-console
+    restart: unless-stopped
+    ports:
+      # host:container - change 8088 if it is already taken on the NAS
+      - "8088:80"
+    volumes:
+      - ${CONSOLE_DIR:?set CONSOLE_DIR to the folder holding index.html}:/usr/share/nginx/html:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
