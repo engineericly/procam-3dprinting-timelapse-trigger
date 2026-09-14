@@ -985,6 +985,12 @@ function buildGcode(){
   L.push("; suffix every layer would send identical text and only the first would");
   L.push("; ever reach the ESP32.");
   L.push(";");
+  L.push("; OOZE - the nozzle drips while it holds still for the dwell. Where");
+  L.push("; that lands depends on your slicer: the prime tower must run before");
+  L.push("; the head returns to the model, or the blob ends up on the print.");
+  L.push("; Creality Print orders it correctly, confirmed against real sliced");
+  L.push("; g-code. A Snapmaker U1 did not, which is what forced a purge pad.");
+  L.push(";");
   L.push("; BEFORE AN UNATTENDED PRINT, jog there by hand with the printer idle and");
   L.push("; the nozzle already clear of the bed:");
   L.push(";   " + jogCommand());
@@ -1077,6 +1083,16 @@ function renderTimingNotes(){
     out += note("flat","i","Shutter fires about <b>"+FW_TRIGGER_DELAY_MS+" ms</b> into the dwell, leaving <b>"+still+" ms</b> of stillness after it.");
   }
   out += note("flat","i","Layers that finish in under <b>"+FW_LOCKOUT_MS+" ms</b> will not fire a second shot &mdash; the firmware's re-trigger lockout swallows them.");
+
+  /* Learned the hard way on a Snapmaker U1: the nozzle oozes while it sits
+     still for the dwell, and where that ooze ends up depends entirely on
+     whether the slicer routes through its prime tower before returning to the
+     model. */
+  if(CATALOG[P.mfr].slicer === "crealityprint"){
+    out += note("ok","\u2713","The nozzle oozes during the dwell. Creality Print's prime tower fires in the right order relative to this block &mdash; verified against real sliced g-code &mdash; so that ooze is wiped there before the head touches the model.");
+  } else {
+    out += note("warn","!","The nozzle oozes during the dwell, and where it lands depends on your slicer. Check a sliced file: the prime tower must come <b>before</b> the head returns to the model. On a Snapmaker U1 it went straight back to the object and the ooze landed on the print &mdash; that is what forced a purge pad. Enable the prime tower if you have not.");
+  }
   if(P.token !== "PROCAM_TRIGGER"){
     out += note("warn","!","Token changed. Update <code>TRIGGER_TOKEN</code> on line "+FW_TOKEN_LINE+" of the firmware and reflash, or the ESP32 will never fire.");
   }

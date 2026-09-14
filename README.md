@@ -90,5 +90,12 @@ new path silently makes a new artifact.
   aborts the whole job, not just one photo.
 - **Not every printer can do this.** The method needs Moonraker. Anycubic's
   stock firmware does not expose it (needs rooting); Bambu never does.
+- **Ooze lands wherever your slicer sends the head next.** The nozzle drips
+  while it holds still for the dwell. If the slicer's prime tower runs before
+  the head returns to the model, the ooze is wiped there and you never see it.
+  If it goes straight back to the object, the blob lands on the print - that is
+  what happened on a Snapmaker U1 and why that era needed a purge pad. Creality
+  Print orders it correctly, confirmed against real sliced g-code. Check any
+  other slicer before trusting it.
 - **Token must match.** `TRIGGER_TOKEN` in the firmware has to equal the token
   in the M117 line, or nothing fires.
