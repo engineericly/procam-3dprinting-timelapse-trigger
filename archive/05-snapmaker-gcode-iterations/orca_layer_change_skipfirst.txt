@@ -1,0 +1,53 @@
+; ===========================================================================
+; FX30 camera trigger for Orca - Layer change G-code
+;
+; Skips the opening layers so the trigger never interrupts first-layer
+; adhesion, and you get no frame of an empty bed.
+;
+;   layer_z > 0.6  at 0.2 mm layers  -> starts filming from layer 4
+;                  at 0.3 mm layers  -> starts filming from layer 3
+; Raise it for a longer skip, lower it to start sooner.
+;
+; Z hop is 2mm (up from the original 0.6mm) for real clearance over the
+; model and the prime tower.
+;
+; The return trip no longer drops Z back down manually before moving.
+; RESTORE_GCODE_STATE ... MOVE=1 issues one straight-line move to the exact
+; saved X/Y/Z together, so Z glides down smoothly as it travels and only
+; reaches layer height right at the arrival point - it never spends the
+; whole trip flat at print height like the old version did. That was the
+; actual cause of the head dragging back over the object at the wrong
+; height.
+; ===========================================================================
+
+;BEFORE_LAYER_CHANGE
+;[layer_z]
+G92 E0
+
+TIMELAPSE_TAKE_FRAME
+DEFECT_DETECTION_DETECT
+
+{if layer_z > 0.6}
+; ---------------- FX30 camera trigger ----------------
+SAVE_GCODE_STATE NAME=fx30      ; remember position, feedrate and E mode
+M83                              ; relative extrusion for the retract
+G1 E-0.8 F2400                   ; retract, so the trip leaves no blobs
+G91
+G1 Z2 F1200                      ; lift 2mm clear of the print/tower
+G90
+
+G1 X250 Y265 F18000              ; fast diagonal to the approach point
+G1 X262.8 Y265 F6000              ; press the switch -> camera triggered
+M400                              ; wait for the move to actually finish
+G4 P100                           ; hold the contact closed
+
+G1 X255 Y265 F6000                ; back off: switch released, head out of frame
+M400
+G4 P2000                          ; hold still while the shutter fires
+
+G1 E0.8 F2400                     ; un-retract, exactly cancelling the retract
+RESTORE_GCODE_STATE NAME=fx30 MOVE=1 MOVE_SPEED=300
+; the line above alone brings X, Y and Z back to the exact point saved,
+; sloping down out of the 2mm hop as it travels - no separate Z move needed
+; -------------- end FX30 camera trigger --------------
+{endif}

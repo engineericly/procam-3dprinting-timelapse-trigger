@@ -1,0 +1,36 @@
+; ===========================================================================
+; FX30 camera trigger - Timelapse G-code box (NETWORKED VERSION)
+;
+; This replaces the whole switch-travel block. The camera is triggered over
+; the network by fx30_daemon.py (via the FX30_TRIGGER macro in
+; klipper_fx30_macros.cfg), so there's no physical switch to drive the
+; toolhead to and back.
+;
+; Notice what's GONE compared to the old version: no SAVE_GCODE_STATE /
+; RESTORE_GCODE_STATE, no Z-hop, no travel to a switch location at all. All
+; of that existed purely to get the nozzle to a physical switch and back
+; without colliding with the print - if there's no travel, there's nothing
+; to collide with. The nozzle just sits at wherever the layer change left it.
+;
+; No ;BEFORE_LAYER_CHANGE marker or G92 E0 here - the profile inserts those
+; automatically regardless of what's in this box (confirmed earlier), same
+; for TIMELAPSE_TAKE_FRAME / DEFECT_DETECTION_DETECT.
+; ===========================================================================
+
+; ---------------- FX30 camera trigger (networked) ----------------
+M83                              ; relative extrusion
+G1 E-0.8 F2400                   ; retract, so the pause leaves no blobs at
+                                  ; the nozzle while it sits still
+
+FX30_TRIGGER                     ; fire the camera over the network - press
+                                  ; and release happen inside the daemon,
+                                  ; this just asks it to do that
+
+G4 P2000                         ; hold still while the shutter fires - this
+                                  ; is also enough margin for FX30_TRIGGER's
+                                  ; shell command to finish in the background
+                                  ; if your gcode_shell_command runs async
+
+M83
+G1 E0.8 F2400                    ; un-retract, ready to keep printing
+; -------------- end FX30 camera trigger --------------

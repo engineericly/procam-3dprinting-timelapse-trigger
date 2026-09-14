@@ -1,0 +1,67 @@
+; ===========================================================================
+; FX30 camera trigger - Timelapse G-code box (ESP32 + Moonraker, no switch)
+;
+; Replaces the physical-switch trigger entirely. The ESP32 now listens to
+; Moonraker directly (same no-SSH API Fluidd/Mainsail use) and fires the
+; shutter itself over its own proven WiFi/PTP-IP link to the camera - see
+; fx30_remote_trigger_moonraker.ino. This box only needs to: park the nozzle
+; somewhere out of the camera's frame, tell the ESP32 to fire, hold still for
+; the shot, then go back to printing.
+;
+; PARK POSITION - pick ONE of the five G1 lines further down (under "park
+; move") and comment out the rest with a leading ";". Bed is roughly
+; 0.5-270.5 (X) by 1-271 (Y) on the U1 - these sit about 15mm in from each
+; edge. Nudge the numbers if your camera framing needs a different spot.
+;
+; No manual retract/un-retract in this box - Orca's own layer-change retract
+; (already fired before this box, sized to your active filament) and its
+; own object-start deretract (fires automatically right before the next
+; object's first extrusion, once travel is finished) already bracket this
+; whole detour correctly. Adding a second pair here caused the oozing we
+; chased down earlier in this project - see timelapse_gcode_no_leak.txt.
+;
+; No ;BEFORE_LAYER_CHANGE marker or G92 E0 here - the profile inserts
+; those automatically regardless of what's in this box, same for
+; TIMELAPSE_TAKE_FRAME / DEFECT_DETECTION_DETECT.
+; ===========================================================================
+
+; ---------------- FX30 camera trigger ----------------
+SAVE_GCODE_STATE NAME=fx30      ; remember position/mode BEFORE any of this
+                                 ; box's own moves happen - some layers'
+                                 ; object-start moves are relative arcs that
+                                 ; depend on returning to this exact spot
+G91
+G1 Z2 F1200                      ; lift 2mm clear of the print/tower before
+                                  ; crossing the bed to the park spot
+G90
+
+; --- park move - pick ONE, comment out the other four ---
+G1 X255 Y255 F18000    ; back-right corner (default)
+;G1 X15  Y255 F18000    ; back-left corner
+;G1 X135 Y255 F18000    ; back-center
+;G1 X255 Y15  F18000    ; front-right corner
+;G1 X15  Y15  F18000    ; front-left corner
+
+M400                              ; wait for the park move to actually finish
+                                   ; - the ESP32 fires the instant it sees
+                                   ; the RESPOND below, so the head needs to
+                                   ; already be stationary
+RESPOND TYPE=command MSG="FX30_TRIGGER"
+                                  ; tells the ESP32 (listening on Moonraker)
+                                  ; to fire the shutter now
+
+G4 P1200                         ; hold still while the shutter fires -
+                                  ; nozzle stays fully retracted (Orca's own
+                                  ; retraction) through this whole dwell
+
+FX30_PURGE                       ; traces the small oval purge pad (see
+                                  ; fx30_purge_macro.cfg) - purges and
+                                  ; re-retracts on its own, ending back at
+                                  ; the same retracted baseline this box
+                                  ; started at, so nothing below changes
+
+RESTORE_GCODE_STATE NAME=fx30 MOVE=1 MOVE_SPEED=300
+; the move above crosses back to the resume point, still fully retracted -
+; no un-retract here, Orca's own auto-deretract fires on its own right
+; before the next object's first extrusion
+; -------------- end FX30 camera trigger --------------

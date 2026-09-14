@@ -1,0 +1,50 @@
+; ===========================================================================
+; FX30 camera trigger for Orca - Layer change G-code
+;
+; Fires on every layer change, including before layer 1 (layer 0) starts.
+; That very first firing happens with the bed still empty, before any
+; plastic is down - the shot at that point is just an empty-bed frame.
+;
+; Z hop is 2mm.
+;
+; The un-retract happens AFTER the return trip, not before. That's on
+; purpose: the nozzle sits still for 2 seconds while the photo is taken,
+; plenty of time to ooze. If we un-retract before traveling back, that ooze
+; rides across the object during the return move. Keeping the nozzle
+; retracted through the whole crossing and only priming once it's back at
+; the resume point stops that smear.
+; ===========================================================================
+
+;BEFORE_LAYER_CHANGE
+;[layer_z]
+G92 E0
+
+TIMELAPSE_TAKE_FRAME
+DEFECT_DETECTION_DETECT
+
+; ---------------- FX30 camera trigger ----------------
+SAVE_GCODE_STATE NAME=fx30      ; remember position, feedrate and E mode
+M83                              ; relative extrusion for the retract
+G1 E-0.8 F2400                   ; retract, so the trip leaves no blobs
+G91
+G1 Z2 F1200                      ; lift 2mm clear of the print/tower
+G90
+
+G1 X250 Y265 F18000              ; fast diagonal to the approach point
+G1 X262.8 Y265 F6000              ; press the switch -> camera triggered
+M400                              ; wait for the move to actually finish
+G4 P100                           ; hold the contact closed
+
+G1 X255 Y265                ; back off: switch released, head out of frame
+M400
+G4 P2000                          ; hold still while the shutter fires - nozzle
+                                   ; stays retracted through this whole dwell
+
+RESTORE_GCODE_STATE NAME=fx30 MOVE=1 MOVE_SPEED=300
+; the move above crosses back over the object while still retracted
+
+M83
+G1 E0.8 F2400                     ; un-retract only now, once back at the
+                                   ; resume point - nothing left to ooze
+                                   ; while crossing the print
+; -------------- end FX30 camera trigger --------------

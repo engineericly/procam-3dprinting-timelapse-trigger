@@ -1,0 +1,63 @@
+; ===========================================================================
+; FX30 camera trigger - Timelapse G-code box
+; Simple version - no manual purge pad. Orca's own duplicate-object purge
+; trick handles the purge, "Avoid crossing walls" handles routing.
+;
+; SUPERSEDES the {retraction_length[0]} version - that fix resized our own
+; manual retract/un-retract pair to match the filament profile, but traced
+; against the actual printed gcode it turned out the pair itself was the
+; problem, not its size. Here's why:
+;
+; Orca ALREADY retracts automatically at every layer change, BEFORE this
+; box even starts (a bare "G1 E-1.5" right after ;LAYER_CHANGE, sized to
+; your filament's own retraction_length - confirmed present in the actual
+; gcode, unconditional, regardless of what's in this box). Orca ALSO
+; auto-deretracts automatically right before the first object of the new
+; layer starts extruding - correctly timed, after all travel is finished.
+; Those two already bracket this entire detour correctly by themselves.
+;
+; Our old box added its own extra retract/un-retract on top of that pair.
+; The un-retract half fired the instant RESTORE_GCODE_STATE parked the
+; nozzle back at the resume point - which sits on the real object, since
+; it's whichever object printed last on the previous layer - so it primed
+; the nozzle back to near full pressure while sitting still on top of the
+; print, then immediately dragged it away on a bare, non-extruding travel
+; move to whichever object prints first next (the purge duplicate). That
+; stationary prime-then-drag-away, right on the real part, was the leak.
+;
+; Fix: don't add a second retract/un-retract pair at all. Let Orca's own
+; pair - already the right size for whatever filament is loaded, already
+; timed to fire only once real extrusion is about to resume - cover the
+; whole detour by itself. Nothing in this box touches E anymore.
+;
+; No ;BEFORE_LAYER_CHANGE marker or G92 E0 here - the profile inserts
+; those automatically regardless of what's in this box (confirmed
+; earlier), same for TIMELAPSE_TAKE_FRAME / DEFECT_DETECTION_DETECT.
+; ===========================================================================
+
+; ---------------- FX30 camera trigger ----------------
+SAVE_GCODE_STATE NAME=fx30      ; remember position, feedrate and E mode -
+                                 ; Orca's own layer-change retract already
+                                 ; ran before this line, so we're already
+                                 ; retracted going into the switch trip
+G91
+G1 Z2 F1200                      ; lift 2mm clear of the print/tower
+G90
+
+G1 X250 Y265 F18000              ; fast diagonal to the approach point
+G1 X262.8 Y265 F6000              ; press the switch -> camera triggered
+M400                              ; wait for the move to actually finish
+G4 P100                           ; hold the contact closed
+
+G1 X248 Y265 F6000                 ; back off clear of the switch
+M400
+G4 P2000                          ; hold still while the shutter fires -
+                                   ; nozzle stays retracted through this
+                                   ; whole dwell
+
+RESTORE_GCODE_STATE NAME=fx30 MOVE=1 MOVE_SPEED=300
+; the move above crosses back to the resume point, STILL fully retracted
+; on Orca's own retraction - no un-retract here. Orca's own auto-deretract
+; fires on its own, right before the next object's first extrusion, once
+; travel to it is actually finished - the correct place for it to happen.
+; -------------- end FX30 camera trigger --------------

@@ -1,0 +1,6 @@
+; PROCAM camera trigger - whole sequence lives in the PROCAM_TRIGGER_SHOT
+; Klipper macro (procam_trigger_shot_macro.cfg) instead of here, so tuning
+; the dwell time or park position no longer needs a re-slice - just edit
+; the macro (or SET_GCODE_VARIABLE from Fluidd's console) and restart
+; Klipper. See procam_trigger_shot_macro.cfg.
+PROCAM_TRIGGER_SHOT

@@ -1,0 +1,10 @@
+.DS_Store
+*.swp
+build/
+*.hex
+*.bin
+*.elf
+
+# Real credentials - never commit
+secrets.h
+firmware/secrets.h

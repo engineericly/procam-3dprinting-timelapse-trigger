@@ -1,0 +1,39 @@
+; ===========================================================================
+; Paste this into Orca:  Printer Settings > Custom G-code > Layer change G-code
+; (the box that already starts with ;BEFORE_LAYER_CHANGE)
+;
+; Keep the lines that are already there. Add everything from "FX30 camera
+; trigger" downwards. No printer.cfg changes and no macros needed - these are
+; all built-in Klipper commands, so they work straight from the print file.
+; ===========================================================================
+
+;BEFORE_LAYER_CHANGE
+;[layer_z]
+G92 E0
+
+TIMELAPSE_TAKE_FRAME
+DEFECT_DETECTION_DETECT
+
+; ---------------- FX30 camera trigger ----------------
+SAVE_GCODE_STATE NAME=fx30      ; remember position, feedrate and E mode
+M83                             ; relative extrusion for the retract
+G1 E-0.8 F2400                  ; retract, so the trip leaves no blobs
+G91                             ; relative
+G1 Z0.6 F1200                   ; lift clear of the print
+G90                             ; back to absolute
+
+G1 X250 Y265 F18000             ; fast diagonal to the approach point
+G1 X262.8 Y265 F6000            ; press the switch -> camera is triggered
+M400                            ; wait for the move to actually finish
+G4 P100                         ; hold the contact closed
+
+G1 X255 Y265 F6000              ; back off: switch released, head out of frame
+M400
+G4 P2000                        ; hold still while the shutter fires
+
+G91
+G1 Z-0.6 F1200                  ; drop back to layer height
+G90
+G1 E0.8 F2400                   ; un-retract, exactly cancelling the retract
+RESTORE_GCODE_STATE NAME=fx30 MOVE=1 MOVE_SPEED=300   ; return to the print
+; -------------- end FX30 camera trigger --------------

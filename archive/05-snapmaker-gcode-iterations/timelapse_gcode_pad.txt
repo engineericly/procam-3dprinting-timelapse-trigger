@@ -1,0 +1,75 @@
+; ===========================================================================
+; FX30 camera trigger - Timelapse G-code box
+; Self-contained purge PAD version - replaces the single thin line with a
+; small solid 4x4mm block (perimeter + infill), so it has real footprint
+; and doesn't topple over the course of a long print.
+;
+; Extrusion amounts below are calibrated for layer_height=0.2mm and a
+; 0.42mm line width (read from your profile). If you ever print this
+; project at a different layer height, these E values need to scale with
+; it - they were computed as (line_width * layer_height) / filament area,
+; not eyeballed.
+;
+; Pad sits at X244-248, Y263-267: past the switch's approach/release point
+; (X248-262.8), same clearance as before. It touches down at {layer_z} so
+; it grows exactly in step with the print, like a real tower would.
+; ===========================================================================
+
+; ---------------- FX30 camera trigger + self-purge pad ----------------
+SAVE_GCODE_STATE NAME=fx30      ; remember position, feedrate and E mode
+M83                              ; relative extrusion
+G1 E-0.8 F2400                   ; retract, so the trip leaves no blobs
+G91
+G1 Z2 F1200                      ; lift 2mm clear of the print
+G90
+
+G1 X250 Y265 F18000              ; fast diagonal to the approach point
+G1 X262.8 Y265 F6000              ; press the switch -> camera triggered
+M400                              ; wait for the move to actually finish
+G4 P100                           ; hold the contact closed
+
+G1 X248 Y265 F6000                 ; back off clear of the switch - this is
+                                    ; also the pad's start corner
+M400
+G4 P2000                          ; hold still while the shutter fires -
+                                   ; nozzle stays retracted, still lifted
+
+G1 Z{layer_z} F1200                ; touch down to this layer's height
+
+G1 E1.0 F150                       ; deliberate stationary prime - flushes
+                                    ; whatever oozed/degraded during the
+                                    ; dwell before the calibrated pad starts
+
+; --- perimeter: one closed loop around the 4x4mm pad ---
+G1 X248 Y263 E0.0698 F600
+G1 X244 Y263 E0.1397
+G1 X244 Y267 E0.1397
+G1 X248 Y267 E0.1397
+G1 X248 Y265 E0.0698
+
+; --- infill: 5 lines filling the pad solid ---
+G1 X244.3 Y263.6 F600            ; travel to first infill line (no E - jump)
+G1 X247.7 Y263.6 E0.1187 F600
+G1 X247.7 Y264.3 F600
+G1 X244.3 Y264.3 E0.1187 F600
+G1 X244.3 Y265.0 F600
+G1 X247.7 Y265.0 E0.1187 F600
+G1 X247.7 Y265.7 F600
+G1 X244.3 Y265.7 E0.1187 F600
+G1 X244.3 Y266.4 F600
+G1 X247.7 Y266.4 E0.1187 F600
+
+M400
+G4 P200                            ; brief settle before lifting off
+G1 E-0.8 F2400                     ; retract again before leaving
+G91
+G1 Z2 F1200                        ; lift back up for the return trip
+G90
+
+RESTORE_GCODE_STATE NAME=fx30 MOVE=1 MOVE_SPEED=300
+; the move above crosses back to the resume point while still retracted
+
+M83
+G1 E0.8 F2400                      ; un-retract only now, back at the
+                                    ; resume point - ready to print
+; -------------- end FX30 camera trigger + self-purge pad --------------

@@ -1,0 +1,1321 @@
+<title>PROCAM Trigger Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+:root{
+  --ground:#EDEBE8;
+  --surface:#FFFFFF;
+  --surface-2:#F6F4F1;
+  --line:#D3CFC9;
+  --line-soft:#E5E1DC;
+  --ink:#231F20;
+  --ink-2:#5C5558;
+  --ink-3:#6F686B;
+  --accent:#986600;
+  --accent-2:#8F5F00;
+  --accent-soft:#FFF1D1;
+  --accent-fill:#FFB600;
+  --on-accent:#231F20;
+  --ok:#196B52;
+  --ok-soft:#DDF1EA;
+  --warn:#8F5100;
+  --warn-soft:#FBEBD2;
+  --danger:#B23A31;
+  --danger-soft:#FAE3E1;
+  --bed-fill:#FCFBFA;
+  --grid:#E4E0DA;
+  --grid-major:#CBC5BE;
+  --shadow:0 1px 2px rgba(35,31,32,.05), 0 6px 18px -12px rgba(35,31,32,.3);
+  --f-display:"Archivo","Helvetica Neue",Helvetica,Arial,sans-serif;
+  --f-body:"Archivo","Helvetica Neue",Helvetica,Arial,sans-serif;
+  --f-mono:"IBM Plex Mono","SFMono-Regular",Menlo,Consolas,monospace;
+  --r:10px;
+  --r-sm:7px;
+}
+
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#1A1718;
+    --surface:#231F20;
+    --surface-2:#2C2728;
+    --line:#403A3B;
+    --line-soft:#332E2F;
+    --ink:#F2EFEC;
+    --ink-2:#A9A1A3;
+    --ink-3:#9A9294;
+    --accent:#FFB600;
+    --accent-2:#FFC838;
+    --accent-soft:#3B2C05;
+    --accent-fill:#FFB600;
+    --on-accent:#231F20;
+    --ok:#3DB690;
+    --ok-soft:#12332A;
+    --warn:#E08700;
+    --warn-soft:#3A2708;
+    --danger:#E85F54;
+    --danger-soft:#3B1A17;
+    --bed-fill:#1E1A1B;
+    --grid:#332E2F;
+    --grid-major:#453E3F;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 20px -14px rgba(0,0,0,.8);
+  }
+}
+
+:root[data-theme="dark"]{
+  --ground:#1A1718;
+  --surface:#231F20;
+  --surface-2:#2C2728;
+  --line:#403A3B;
+  --line-soft:#332E2F;
+  --ink:#F2EFEC;
+  --ink-2:#A9A1A3;
+  --ink-3:#9A9294;
+  --accent:#FFB600;
+  --accent-2:#FFC838;
+  --accent-soft:#3B2C05;
+  --accent-fill:#FFB600;
+  --on-accent:#231F20;
+  --ok:#3DB690;
+  --ok-soft:#12332A;
+  --warn:#E08700;
+  --warn-soft:#3A2708;
+  --danger:#E85F54;
+  --danger-soft:#3B1A17;
+  --bed-fill:#1E1A1B;
+  --grid:#332E2F;
+  --grid-major:#453E3F;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 20px -14px rgba(0,0,0,.8);
+}
+
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+body{
+  background:var(--ground);
+  color:var(--ink);
+  font-family:var(--f-body);
+  font-size:14px;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0}
+p{margin:0}
+
+.shell{max-width:1280px;margin:0 auto;padding:22px 20px 64px}
+
+/* ---------- top bar ---------- */
+.topbar{
+  display:flex;flex-wrap:wrap;gap:14px 20px;
+  align-items:flex-end;justify-content:space-between;
+  padding-bottom:16px;margin-bottom:20px;
+  border-bottom:1px solid var(--line);
+}
+.brand h1{font-size:22px;font-weight:700;letter-spacing:-.015em}
+.brand .sub{color:var(--ink-2);font-size:12.5px;margin-top:2px}
+.brand .mark{color:var(--accent)}
+
+.linkstate{display:flex;align-items:center;gap:9px}
+
+/* ---------- pills ---------- */
+.pill{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:5px 11px;border-radius:999px;
+  font-family:var(--f-mono);font-size:11.5px;font-weight:500;
+  letter-spacing:.02em;white-space:nowrap;
+  border:1px solid var(--line);background:var(--surface-2);color:var(--ink-2);
+}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.pill.is-ok{color:var(--ok);background:var(--ok-soft);border-color:transparent}
+.pill.is-warn{color:var(--warn);background:var(--warn-soft);border-color:transparent}
+.pill.is-bad{color:var(--danger);background:var(--danger-soft);border-color:transparent}
+.pill.is-ok .dot{animation:breathe 2.4s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* ---------- panels ---------- */
+.panel{
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:var(--r);
+  box-shadow:var(--shadow);
+  display:flex;flex-direction:column;min-width:0;
+}
+.panel > header{
+  display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  padding:13px 16px;border-bottom:1px solid var(--line-soft);
+}
+.panel h2{font-size:12px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2)}
+.panel .body{padding:16px}
+
+.eyebrow{font-family:var(--f-mono);font-size:11px;color:var(--ink-3);letter-spacing:.03em}
+
+/* ---------- main grid ---------- */
+.grid{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(310px,1fr);gap:18px;align-items:start}
+.stack{display:flex;flex-direction:column;gap:18px;min-width:0}
+.outputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:18px;margin-top:18px}
+@media (max-width:960px){
+  .grid{grid-template-columns:1fr}
+}
+
+/* ---------- form controls ---------- */
+.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.field label{font-size:11.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3)}
+.field .hint{font-size:11.5px;color:var(--ink-3);line-height:1.4}
+.fieldrow{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+input[type=text],input[type=number],select{
+  width:100%;padding:8px 10px;
+  font-family:var(--f-mono);font-size:13.5px;
+  color:var(--ink);background:var(--surface-2);
+  border:1px solid var(--line);border-radius:var(--r-sm);
+  font-variant-numeric:tabular-nums;
+  transition:border-color .14s ease, box-shadow .14s ease;
+}
+select{font-family:var(--f-body);font-size:13.5px}
+input:focus-visible,select:focus-visible,button:focus-visible,[tabindex]:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px;
+}
+input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+input.is-bad{border-color:var(--danger)}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  padding:8px 13px;border-radius:var(--r-sm);cursor:pointer;
+  font-family:var(--f-body);font-size:13px;font-weight:600;
+  border:1px solid var(--line);background:var(--surface-2);color:var(--ink);
+  transition:background .14s ease, border-color .14s ease, transform .08s ease, color .14s ease;
+}
+.btn:hover:not(:disabled){background:var(--surface);border-color:var(--ink-3)}
+.btn:active:not(:disabled){transform:translateY(1px)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.primary{background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent)}
+.btn.primary:hover:not(:disabled){background:var(--accent-2);border-color:var(--accent-2);color:var(--on-accent)}
+.btn.wide{width:100%}
+.btn.tiny{padding:5px 9px;font-size:12px}
+
+/* ---------- preset pad ---------- */
+.padgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-width:168px}
+.padgrid button{
+  aspect-ratio:1;border-radius:var(--r-sm);cursor:pointer;
+  border:1px solid var(--line);background:var(--surface-2);
+  display:grid;place-items:center;
+  transition:background .14s ease,border-color .14s ease;
+}
+.padgrid button:hover{background:var(--accent-soft);border-color:var(--accent)}
+.padgrid button span{width:7px;height:7px;border-radius:50%;background:var(--ink-3);transition:background .14s ease,transform .14s ease}
+.padgrid button:hover span{background:var(--accent);transform:scale(1.35)}
+.padgrid button[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent)}
+.padgrid button[aria-pressed="true"] span{background:var(--accent);transform:scale(1.5)}
+
+/* ---------- bed canvas ---------- */
+.bedwrap{padding:14px 16px 16px;display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+.bedmain{flex:1 1 300px;min-width:0;display:flex;justify-content:center}
+.bedside{flex:0 0 168px;display:flex;flex-direction:column;gap:6px}
+.bedside > span{font-size:11.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3)}
+.bedside .hint{font-size:11.5px;color:var(--ink-3);line-height:1.4;text-transform:none;letter-spacing:0;font-weight:400}
+@media (max-width:520px){ .bedside{flex:1 1 100%} }
+.bedsvg{display:block;width:100%;max-width:540px;height:auto;touch-action:none;cursor:crosshair;border-radius:var(--r-sm)}
+.bedsvg:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.bedsvg text{font-family:var(--f-mono);font-size:8px;fill:var(--ink-3)}
+.bedsvg .axis-cap{font-size:8.5px;font-weight:500;letter-spacing:.12em;fill:var(--ink-3)}
+.marker{transition:transform .28s cubic-bezier(.32,.72,.24,1)}
+.marker.dragging{transition:none}
+.marker .ring{fill:none;stroke:var(--accent-fill);stroke-width:1.6}
+.marker .core{fill:var(--accent-fill)}
+.marker .hair{stroke:var(--accent-fill);stroke-width:1;opacity:.85}
+.echo{fill:none;stroke:var(--accent-fill);stroke-width:1.5;opacity:0}
+.echo.go{animation:echo .5s ease-out}
+@keyframes echo{from{r:4;opacity:.8}to{r:26;opacity:0}}
+.marker.fired .core{animation:fire .45s ease-out}
+@keyframes fire{0%{transform-box:fill-box;transform-origin:center;transform:scale(1)}40%{transform-box:fill-box;transform-origin:center;transform:scale(2.4)}100%{transform-box:fill-box;transform-origin:center;transform:scale(1)}}
+
+/* ---------- readout ---------- */
+.readout{
+  display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;
+  padding:11px 16px;border-top:1px solid var(--line-soft);
+  background:var(--surface-2);border-radius:0 0 var(--r) var(--r);
+}
+.coord{
+  font-family:var(--f-mono);font-size:19px;font-weight:600;
+  font-variant-numeric:tabular-nums;letter-spacing:-.01em;color:var(--ink);
+}
+.coord .k{color:var(--ink-3);font-weight:400;font-size:14px;margin-right:1px}
+.coord.flash{animation:flash .4s ease-out}
+@keyframes flash{from{color:var(--accent)}to{color:var(--ink)}}
+.spacer{flex:1 1 auto}
+
+/* ---------- notes ---------- */
+.note{
+  display:flex;gap:9px;padding:10px 12px;border-radius:var(--r-sm);
+  font-size:12.5px;line-height:1.5;border:1px solid transparent;
+}
+.note .ico{font-family:var(--f-mono);font-weight:600;flex:none;line-height:1.45}
+.note.ok{background:var(--ok-soft);color:var(--ok)}
+.note.warn{background:var(--warn-soft);color:var(--warn)}
+.note.bad{background:var(--danger-soft);color:var(--danger)}
+.note.flat{background:var(--surface-2);color:var(--ink-2);border-color:var(--line-soft)}
+.note b{font-weight:600}
+.note code{font-family:var(--f-mono);font-size:12px}
+.notes{display:flex;flex-direction:column;gap:8px}
+
+/* ---------- code output ---------- */
+.codewrap{position:relative;border-top:1px solid var(--line-soft)}
+pre.code{
+  margin:0;padding:14px 16px;max-height:440px;overflow:auto;
+  font-family:var(--f-mono);font-size:12px;line-height:1.62;
+  color:var(--ink);background:var(--surface-2);
+  border-radius:0 0 var(--r) var(--r);
+  tab-size:2;white-space:pre;
+}
+pre.code .c{color:var(--ink-3)}
+pre.code .cmd{color:var(--accent);font-weight:600}
+pre.code .ph{color:var(--ok);font-weight:600}
+.copybar{display:flex;gap:8px;align-items:center}
+
+/* ---------- moonraker ---------- */
+.mr-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.log{
+  font-family:var(--f-mono);font-size:11.5px;line-height:1.6;
+  background:var(--surface-2);border:1px solid var(--line-soft);
+  border-radius:var(--r-sm);padding:9px 11px;
+  max-height:132px;overflow:auto;color:var(--ink-2);
+}
+.log div{padding:1px 0;word-break:break-word}
+.log .t{color:var(--ink-3)}
+.log .ok{color:var(--ok)}
+.log .er{color:var(--danger)}
+.log:empty::after{content:"No commands sent yet.";color:var(--ink-3)}
+
+.specs{display:flex;flex-wrap:wrap;gap:6px}
+.spec{
+  font-family:var(--f-mono);font-size:11.5px;
+  padding:3px 8px;border-radius:5px;
+  background:var(--surface-2);border:1px solid var(--line-soft);color:var(--ink-2);
+  font-variant-numeric:tabular-nums;
+}
+.spec b{color:var(--ink);font-weight:600}
+
+footer.foot{
+  margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
+  color:var(--ink-3);font-size:12px;display:flex;flex-wrap:wrap;gap:6px 16px;
+}
+footer.foot code{font-family:var(--f-mono)}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
+}
+
+/* ---------- stepped sections ---------- */
+.step{display:flex;align-items:center;gap:9px;margin:26px 0 12px}
+.step:first-of-type{margin-top:4px}
+.step .n{
+  width:22px;height:22px;border-radius:50%;flex:none;
+  display:grid;place-items:center;
+  font-family:var(--f-mono);font-size:11.5px;font-weight:600;
+  background:var(--accent-fill);color:var(--on-accent);
+}
+.step h3{font-family:var(--f-display);font-size:14.5px;font-weight:600;letter-spacing:-.005em}
+.step .why{color:var(--ink-3);font-size:12.5px;font-weight:400}
+.step .rule{flex:1;height:1px;background:var(--line)}
+
+/* ---------- printer profile chips ---------- */
+.profiles{display:flex;flex-wrap:wrap;gap:8px}
+.pcard{
+  position:relative;text-align:left;cursor:pointer;
+  padding:10px 13px;border-radius:var(--r-sm);min-width:172px;
+  border:1px solid var(--line);background:var(--surface-2);color:var(--ink);
+  font-family:var(--f-body);
+  transition:border-color .14s ease,background .14s ease,box-shadow .14s ease;
+}
+.pcard:hover{border-color:var(--ink-3)}
+.pcard[aria-pressed="true"]{
+  border-color:var(--accent);background:var(--accent-soft);
+  box-shadow:inset 3px 0 0 var(--accent);
+}
+.pcard .nm{display:block;font-size:13.5px;font-weight:600;letter-spacing:-.005em}
+.pcard .mt{display:block;font-family:var(--f-mono);font-size:11px;color:var(--ink-3);margin-top:2px}
+.pcard[aria-pressed="true"] .mt{color:var(--ink-2)}
+.pcard .kill{
+  position:absolute;top:5px;right:5px;width:19px;height:19px;
+  border:0;border-radius:5px;cursor:pointer;line-height:1;
+  background:transparent;color:var(--ink-3);font-size:14px;
+  display:none;place-items:center;
+}
+.pcard:hover .kill{display:grid}
+.pcard .kill:hover{background:var(--danger-soft);color:var(--danger)}
+.pcard.add{
+  border-style:dashed;min-width:0;display:grid;place-items:center;
+  color:var(--ink-2);font-size:13px;font-weight:600;padding:10px 16px;
+}
+.pcard.add:hover{border-color:var(--accent);color:var(--accent)}
+
+.addform{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  gap:12px;align-items:end;
+  margin-top:12px;padding:14px;border-radius:var(--r-sm);
+  background:var(--surface-2);border:1px solid var(--line-soft);
+}
+.addform .go{grid-column:1/-1;display:flex;gap:8px;justify-content:flex-end}
+
+.chain{
+  display:flex;flex-wrap:wrap;gap:7px;align-items:center;
+  font-family:var(--f-mono);font-size:11.5px;color:var(--ink-3);
+}
+.chain b{color:var(--ink);font-weight:600}
+.chain .arrow{color:var(--line)}
+</style>
+
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <h1><span class="mark">PROCAM</span> Trigger Console</h1>
+      <div class="sub">Per-printer park points and layer-change G-code for Klipper / Moonraker machines</div>
+    </div>
+    <div class="linkstate">
+      <span class="pill" id="linkPill"><span class="dot"></span><span id="linkTxt">Printer link idle</span></span>
+    </div>
+  </div>
+
+  <!-- ===================== STEP 1 - PRINTER ===================== -->
+  <div class="step">
+    <span class="n">1</span>
+    <h3>Printer</h3>
+    <span class="why">everything below follows from this</span>
+    <span class="rule"></span>
+  </div>
+
+  <section class="panel">
+    <div class="body" style="display:flex;flex-direction:column;gap:14px">
+      <div class="profiles" id="profiles"></div>
+      <div id="addForm" hidden>
+        <div class="addform">
+          <div class="field">
+            <label for="afMfr">Manufacturer</label>
+            <select id="afMfr"></select>
+          </div>
+          <div class="field">
+            <label for="afModel">Model</label>
+            <select id="afModel"></select>
+          </div>
+          <div class="field">
+            <label for="afName">Name it</label>
+            <input type="text" id="afName" placeholder="Workshop K2 Pro" autocomplete="off">
+          </div>
+          <div class="go">
+            <button class="btn" id="afCancel">Cancel</button>
+            <button class="btn primary" id="afAdd">Add printer</button>
+          </div>
+        </div>
+      </div>
+      <div class="chain" id="chain"></div>
+      <div id="printerNote"></div>
+    </div>
+  </section>
+
+  <!-- ===================== STEP 2 - PARK POINT ===================== -->
+  <div class="step">
+    <span class="n">2</span>
+    <h3>Park point</h3>
+    <span class="why" id="stepBed"></span>
+    <span class="rule"></span>
+  </div>
+
+  <div class="grid">
+    <div class="stack">
+
+      <section class="panel">
+        <header>
+          <h2 id="bedTitle">Bed</h2>
+          <span class="pill" id="safePill"><span class="dot"></span><span id="safeTxt">Inside safe area</span></span>
+        </header>
+        <div class="bedwrap">
+          <div class="bedmain">
+          <svg id="bed" class="bedsvg" tabindex="0" role="application"
+               aria-label="Printer bed. Click or drag to set the park point. Arrow keys nudge one millimetre, shift plus arrow nudges ten.">
+            <g id="gGrid"></g>
+            <g id="gSafe"></g>
+            <g id="gLabels"></g>
+            <circle id="echo" class="echo" r="4"></circle>
+            <g id="marker" class="marker">
+              <line class="hair" x1="-14" y1="0" x2="-5" y2="0"></line>
+              <line class="hair" x1="5" y1="0" x2="14" y2="0"></line>
+              <line class="hair" x1="0" y1="-14" x2="0" y2="-5"></line>
+              <line class="hair" x1="0" y1="5" x2="0" y2="14"></line>
+              <circle class="ring" r="9"></circle>
+              <circle class="core" r="3.4"></circle>
+            </g>
+          </svg>
+          </div>
+          <div class="bedside">
+            <span>Anchor presets</span>
+            <div class="padgrid" id="pad"></div>
+            <span class="hint">Nine common points, snapped to your edge margin. Click the bed itself for anything else.</span>
+          </div>
+        </div>
+        <div class="readout">
+          <span class="coord" id="roX"><span class="k">X</span>150.0</span>
+          <span class="coord" id="roY"><span class="k">Y</span>290.0</span>
+          <span class="spacer"></span>
+          <span class="spec">clearance <b id="roClear">10.0</b> mm</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <header>
+          <h2>Printer link</h2>
+          <span class="eyebrow" id="linkFor"></span>
+        </header>
+        <div class="body" style="display:flex;flex-direction:column;gap:12px">
+          <div class="field">
+            <label for="mrHost">Moonraker address</label>
+            <input type="text" id="mrHost" spellcheck="false" autocomplete="off" placeholder="192.168.1.50:7125">
+            <span class="hint">Saved with this printer. Klipper's default Moonraker port is 7125.</span>
+          </div>
+          <div id="mrBlocked"></div>
+          <div class="mr-actions">
+            <button class="btn" id="btnConnect">Check link</button>
+            <button class="btn" id="btnHome" disabled>Home X Y</button>
+            <button class="btn primary" id="btnJog" disabled>Test this point</button>
+            <button class="btn" id="btnFire" disabled>Test fire</button>
+          </div>
+          <div class="note warn">
+            <span class="ico">!</span>
+            <span>These send real movement commands. Printer must be <b>idle</b> with the nozzle already clear of the bed. An out-of-range move mid-print aborts the whole job, not just one photo.</span>
+          </div>
+          <div class="log" id="mrLog"></div>
+        </div>
+      </section>
+
+    </div>
+
+    <div class="stack">
+
+      <section class="panel">
+        <header>
+          <h2>Park point</h2>
+          <span class="eyebrow">machine coordinates</span>
+        </header>
+        <div class="body" style="display:flex;flex-direction:column;gap:12px">
+          <div class="fieldrow">
+            <div class="field">
+              <label for="parkX">Park X (mm)</label>
+              <input type="number" id="parkX" step="0.5">
+            </div>
+            <div class="field">
+              <label for="parkY">Park Y (mm)</label>
+              <input type="number" id="parkY" step="0.5">
+            </div>
+          </div>
+          <div class="field">
+            <label for="margin">Edge margin (mm)</label>
+            <input type="number" id="margin" min="0" max="100" step="1">
+            <span class="hint">Sets where the preset anchors sit, and how close to the edge counts as risky.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <header><h2>Motion &amp; trigger</h2></header>
+        <div class="body" style="display:flex;flex-direction:column;gap:12px">
+          <div class="fieldrow">
+            <div class="field">
+              <label for="zlift">Z lift (mm)</label>
+              <input type="number" id="zlift" min="0" max="50" step="0.1">
+            </div>
+            <div class="field">
+              <label for="feed">Park feed (mm/min)</label>
+              <input type="number" id="feed" min="600" max="60000" step="600">
+            </div>
+          </div>
+          <div class="fieldrow">
+            <div class="field">
+              <label for="dwell">Dwell (ms)</label>
+              <input type="number" id="dwell" min="0" max="10000" step="50">
+            </div>
+            <div class="field">
+              <label for="restore">Restore (mm/s)</label>
+              <input type="number" id="restore" min="10" max="1000" step="10">
+            </div>
+          </div>
+          <div class="field">
+            <label for="token">Trigger token</label>
+            <input type="text" id="token" spellcheck="false" autocomplete="off">
+            <span class="hint">Must match <code>TRIGGER_TOKEN</code> in the firmware. Changing it here means reflashing.</span>
+          </div>
+          <div class="notes" id="timingNotes"></div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- ===================== STEP 3 - OUTPUT ===================== -->
+  <div class="step">
+    <span class="n">3</span>
+    <h3>Paste into your slicer</h3>
+    <span class="why" id="stepSlicer"></span>
+    <span class="rule"></span>
+  </div>
+
+  <div class="outputs">
+    <section class="panel">
+      <header>
+        <h2 id="gcodeTitle">Layer change G-code</h2>
+        <div class="copybar">
+          <span class="eyebrow" id="gcodeSize"></span>
+          <button class="btn tiny" id="btnCopyGcode">Copy</button>
+        </div>
+      </header>
+      <div class="codewrap"><pre class="code" id="outGcode"></pre></div>
+    </section>
+
+    <section class="panel">
+      <header>
+        <h2>Firmware constants</h2>
+        <div class="copybar">
+          <span class="eyebrow">procam_remote_trigger_moonraker.ino</span>
+          <button class="btn tiny" id="btnCopyFw">Copy</button>
+        </div>
+      </header>
+      <div class="codewrap"><pre class="code" id="outFw"></pre></div>
+    </section>
+  </div>
+
+  <footer class="foot">
+    <span id="footWhere"></span>
+    <span>Every command is stock Klipper &mdash; no macros, no SSH, no <code>printer.cfg</code> edits.</span>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ---------------------------------------------------------------------------
+   SLICERS - which box the generated G-code goes into, and where to find it.
+
+   All of these descend from either the Slic3r/PrusaSlicer line or the
+   Bambu Studio/Orca line, and both honour square-bracket placeholders, so
+   [layer_num] is correct across the board. What actually differs is the name
+   of the custom G-code box and the settings path to reach it.
+
+   "verified" means someone has actually sliced with it and watched the
+   placeholder come out as a real number. Only Creality Print has.
+--------------------------------------------------------------------------- */
+var SLICERS = {
+  crealityprint:{ name:"Creality Print", box:"Time lapse G-code",
+                  path:"Printer/Process Settings › Custom G-code", verified:true },
+  anycubic:     { name:"AnycubicSlicer", box:"After layer change G-code",
+                  path:"Printer Settings › Custom G-code",
+                  base:"PrusaSlicer-based" },
+  orca:         { name:"OrcaSlicer", box:"After layer change G-code",
+                  path:"Printer Settings › Machine G-code" },
+  elegoo:       { name:"Elegoo Slicer", box:"After layer change G-code",
+                  path:"Printer Settings › Machine G-code",
+                  base:"OrcaSlicer-based" },
+  bambu:        { name:"Bambu Studio", box:"After layer change G-code",
+                  path:"Printer Settings › Machine G-code" }
+};
+
+/* ---------------------------------------------------------------------------
+   PRINTER CATALOG.
+
+   mr = whether the printer exposes Moonraker, which this whole trigger method
+   depends on:
+     "stock"  - Klipper and Moonraker reachable on the stock firmware
+     "rooted" - Klipper is in there, but Moonraker needs custom firmware
+     "none"   - no Moonraker at all, this approach cannot work
+
+   Bed sizes are published build volumes. Only the K2 Pro has been measured
+   against a real machine in this project - treat the rest as a starting point
+   and jog-test the park point before trusting it.
+--------------------------------------------------------------------------- */
+var CATALOG = {
+  creality:{ name:"Creality", slicer:"crealityprint", models:{
+    k2pro   :{ name:"K2 Pro",        x:300, y:300, z:300, mr:"stock", verified:true },
+    k2plus  :{ name:"K2 Plus",       x:350, y:350, z:350, mr:"stock" },
+    k1max   :{ name:"K1 Max",        x:300, y:300, z:300, mr:"stock" },
+    k1c     :{ name:"K1C",           x:220, y:220, z:250, mr:"stock" },
+    k1      :{ name:"K1",            x:220, y:220, z:250, mr:"stock" },
+    e3v3ke  :{ name:"Ender-3 V3 KE", x:220, y:220, z:240, mr:"stock" }
+  }},
+  anycubic:{ name:"Anycubic", slicer:"anycubic", models:{
+    kobra3   :{ name:"Kobra 3",     x:250, y:250, z:260, mr:"rooted" },
+    kobra3max:{ name:"Kobra 3 Max", x:420, y:420, z:500, mr:"rooted" },
+    kobra2pro:{ name:"Kobra 2 Pro", x:220, y:220, z:250, mr:"rooted" }
+  }},
+  sovol:{ name:"Sovol", slicer:"orca", models:{
+    sv08:{ name:"SV08", x:350, y:350, z:345, mr:"stock" }
+  }},
+  elegoo:{ name:"Elegoo", slicer:"elegoo", models:{
+    centauri:{ name:"Centauri Carbon", x:256, y:256, z:256, mr:"stock" }
+  }},
+  bambu:{ name:"Bambu Lab", slicer:"bambu", models:{
+    x1c:{ name:"X1 Carbon", x:256, y:256, z:256, mr:"none" },
+    p1s:{ name:"P1S",       x:256, y:256, z:256, mr:"none" },
+    a1 :{ name:"A1",        x:256, y:256, z:256, mr:"none" }
+  }},
+  other:{ name:"Other / DIY Klipper", slicer:"orca", models:{
+    custom:{ name:"Custom bed", x:300, y:300, z:300, mr:"stock" }
+  }}
+};
+
+/* Firmware constants, read from procam_remote_trigger_moonraker.ino */
+var FW_TRIGGER_DELAY_MS = 100;   /* OC_MOONRAKER_TRIGGER_DELAY_MS */
+var FW_LOCKOUT_MS       = 1500;  /* OC_RETRIGGER_LOCKOUT_MS */
+var FW_TOKEN_LINE       = 104;
+
+var PAD = 26; /* svg breathing room around the bed, in bed millimetres */
+
+function defaults(mfr, model, label){
+  var m = CATALOG[mfr].models[model];
+  return {
+    id: "p" + Date.now() + Math.floor(Math.random()*1000),
+    label: label || (CATALOG[mfr].name + " " + m.name),
+    mfr: mfr, model: model,
+    bedX: m.x, bedY: m.y, bedZ: m.z,
+    host: "",
+    parkX: Math.round(m.x/2), parkY: m.y - 10,
+    margin: 10, zlift: 2, feed: 18000, dwell: 1200, restore: 300,
+    token: "PROCAM_TRIGGER"
+  };
+}
+
+var DB = { profiles: [], activeId: null };
+var P = null;                 /* the active profile */
+var dragging = false, fireSeq = 0, mrOK = false;
+
+var $ = function(id){ return document.getElementById(id); };
+var svg = $("bed"), marker = $("marker"), echo = $("echo");
+
+function clamp(v,lo,hi){ return v<lo?lo:(v>hi?hi:v); }
+function round(v,step){ return Math.round(v/step)*step; }
+function fmt(v){ return (Math.round(v*10)/10).toFixed(1); }
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function model(){ return CATALOG[P.mfr].models[P.model]; }
+function slicer(){ return SLICERS[CATALOG[P.mfr].slicer]; }
+
+/* ---------- persistence ---------- */
+function save(){
+  try{ localStorage.setItem("procam.console.v2", JSON.stringify(DB)); }catch(e){}
+}
+function load(){
+  try{
+    var raw = localStorage.getItem("procam.console.v2");
+    if(raw){
+      var o = JSON.parse(raw);
+      if(o && o.profiles && o.profiles.length){ DB = o; return; }
+    }
+  }catch(e){}
+  var seed = defaults("creality","k2pro","K2 Pro");
+  seed.parkX = 150; seed.parkY = 290;
+  DB = { profiles:[seed], activeId: seed.id };
+}
+function activate(id){
+  var found = DB.profiles.filter(function(p){ return p.id===id; })[0];
+  P = found || DB.profiles[0];
+  DB.activeId = P.id;
+  applyProfile();
+  save();
+}
+
+/* ---------- step 1: profile cards ---------- */
+function renderProfiles(){
+  var html = "";
+  DB.profiles.forEach(function(p){
+    var m = CATALOG[p.mfr].models[p.model];
+    html += '<button type="button" class="pcard" data-id="'+p.id+'" aria-pressed="'+(p.id===P.id)+'">'
+          +   '<span class="nm">'+esc(p.label)+'</span>'
+          +   '<span class="mt">'+p.bedX+'&times;'+p.bedY+' mm'+(p.host?' &middot; '+esc(p.host):'')+'</span>'
+          +   (DB.profiles.length>1 ? '<span class="kill" data-kill="'+p.id+'" role="button" aria-label="Remove '+esc(p.label)+'" title="Remove">&times;</span>' : '')
+          + '</button>';
+  });
+  html += '<button type="button" class="pcard add" id="btnAddOpen">+ Add printer</button>';
+  $("profiles").innerHTML = html;
+}
+
+function fillMfr(){
+  var h = "";
+  Object.keys(CATALOG).forEach(function(k){
+    h += '<option value="'+k+'">'+CATALOG[k].name+'</option>';
+  });
+  $("afMfr").innerHTML = h;
+  fillModels();
+}
+function fillModels(){
+  var mfr = $("afMfr").value, h = "";
+  Object.keys(CATALOG[mfr].models).forEach(function(k){
+    var m = CATALOG[mfr].models[k];
+    h += '<option value="'+k+'">'+m.name+' &mdash; '+m.x+'×'+m.y+'</option>';
+  });
+  $("afModel").innerHTML = h;
+  suggestName();
+}
+function suggestName(){
+  var mfr = $("afMfr").value, md = $("afModel").value;
+  if(!md) return;
+  $("afName").placeholder = CATALOG[mfr].name + " " + CATALOG[mfr].models[md].name;
+}
+
+/* ---------- derived context strip ---------- */
+function renderChain(){
+  var m = model(), sl = slicer(), C = CATALOG[P.mfr];
+  $("chain").innerHTML =
+      '<b>'+esc(C.name)+' '+esc(m.name)+'</b>'
+    + '<span class="arrow">&rarr;</span> slicer <b>'+esc(sl.name)+'</b>'
+    + '<span class="arrow">&rarr;</span> box <b>'+esc(sl.box)+'</b>'
+    + '<span class="arrow">&rarr;</span> bed <b>'+P.bedX+'×'+P.bedY+'</b> mm'
+    + (m.z ? '<span class="arrow">&rarr;</span> Z <b>'+m.z+'</b> mm' : '');
+
+  $("stepBed").textContent = "bed " + P.bedX + " × " + P.bedY + " mm, park and timing";
+  $("stepSlicer").textContent = sl.name + " › " + sl.box;
+  $("bedTitle").textContent = CATALOG[P.mfr].name + " " + m.name + " bed";
+  $("gcodeTitle").textContent = sl.box;
+  $("linkFor").textContent = P.label;
+  $("footWhere").innerHTML = "Paste the box into <b>" + esc(sl.name) + " › " + esc(sl.path) + " › " + esc(sl.box) + "</b>.";
+}
+
+function renderPrinterNote(){
+  var m = model(), sl = slicer(), out = "";
+
+  if(m.mr === "none"){
+    out += note("bad","✕","<b>"+esc(CATALOG[P.mfr].name+" "+m.name)+" does not expose Moonraker.</b> This trigger method reads Klipper's <code>display_status</code> over Moonraker's websocket, so it cannot work on this printer at all. The G-code below is generated for reference only.");
+  } else if(m.mr === "rooted"){
+    out += note("warn","!","<b>Moonraker needs custom firmware here.</b> Anycubic's stock firmware runs a locked-down Klipper with no Moonraker API. Root it first (the Rinkhals project is the usual route) or the ESP32 has nothing to subscribe to.");
+  }
+
+  if(m.verified){
+    out += note("ok","✓","M117 over Moonraker's <code>display_status</code> was confirmed working on this exact model. RESPOND was tested here and fails, which is why the box uses M117.");
+  } else if(m.mr !== "none"){
+    out += note("flat","i","Bed size is the published build volume, not a measurement from your machine. The RESPOND-fails/M117-works finding was verified on a <b>Creality K2 Pro</b> &mdash; likely the same on any stock Klipper printer, but unconfirmed here.");
+  }
+
+  if(!sl.verified){
+    out += note("flat","i","<b>"+esc(sl.name)+"</b>"+(sl.base?" ("+esc(sl.base)+")":"")+" honours square-bracket placeholders, so <code>[layer_num]</code> should substitute correctly &mdash; but only Creality Print has actually been sliced and checked in this project. Open the sliced file once and confirm it became a real number.");
+  }
+  $("printerNote").innerHTML = out;
+}
+
+/* ---------- coordinate mapping: svg user units ARE bed millimetres ---------- */
+function toSvgX(x){ return PAD + x; }
+function toSvgY(y){ return PAD + (P.bedY - y); }
+function fromSvgX(sx){ return sx - PAD; }
+function fromSvgY(sy){ return P.bedY - (sy - PAD); }
+
+function renderBed(){
+  svg.setAttribute("viewBox", "0 0 " + (P.bedX + PAD*2) + " " + (P.bedY + PAD*2));
+  var grid = "", labels = "", step = 50, i;
+  var tick = P.bedX > 400 || P.bedY > 400 ? 100 : 50;
+
+  grid += '<rect x="'+PAD+'" y="'+PAD+'" width="'+P.bedX+'" height="'+P.bedY+
+          '" fill="var(--bed-fill)" stroke="var(--grid-major)" stroke-width="1"/>';
+  for(i = tick; i < P.bedX; i += tick){
+    grid += '<line x1="'+toSvgX(i)+'" y1="'+PAD+'" x2="'+toSvgX(i)+'" y2="'+(PAD+P.bedY)+
+            '" stroke="var('+(i%100===0?"--grid-major":"--grid")+')" stroke-width="'+(i%100===0?0.7:0.45)+'"/>';
+  }
+  for(i = tick; i < P.bedY; i += tick){
+    grid += '<line x1="'+PAD+'" y1="'+toSvgY(i)+'" x2="'+(PAD+P.bedX)+'" y2="'+toSvgY(i)+
+            '" stroke="var('+(i%100===0?"--grid-major":"--grid")+')" stroke-width="'+(i%100===0?0.7:0.45)+'"/>';
+  }
+  for(i = 0; i <= P.bedX; i += 100){
+    labels += '<text x="'+toSvgX(i)+'" y="'+(PAD+P.bedY+13)+'" text-anchor="middle">'+i+'</text>';
+  }
+  for(i = 0; i <= P.bedY; i += 100){
+    labels += '<text x="'+(PAD-7)+'" y="'+(toSvgY(i)+3)+'" text-anchor="end">'+i+'</text>';
+  }
+  labels += '<text class="axis-cap" x="'+toSvgX(P.bedX/2)+'" y="'+(PAD+P.bedY+23)+'" text-anchor="middle">FRONT</text>';
+  labels += '<text class="axis-cap" x="'+toSvgX(P.bedX/2)+'" y="'+(PAD-12)+'" text-anchor="middle">BACK</text>';
+
+  $("gGrid").innerHTML = grid;
+  $("gLabels").innerHTML = labels;
+  renderSafe();
+}
+function renderSafe(){
+  var m = P.margin, w = Math.max(0, P.bedX - m*2), h = Math.max(0, P.bedY - m*2);
+  $("gSafe").innerHTML = (w>0 && h>0)
+    ? '<rect x="'+toSvgX(m)+'" y="'+toSvgY(P.bedY-m)+'" width="'+w+'" height="'+h+
+      '" fill="none" stroke="var(--ok)" stroke-width="0.7" stroke-dasharray="3 3" opacity="0.5"/>'
+    : "";
+}
+
+/* ---------- park point ---------- */
+function clearance(){ return Math.min(P.parkX, P.bedX-P.parkX, P.parkY, P.bedY-P.parkY); }
+function anchorName(){
+  var fx = P.parkX/P.bedX, fy = P.parkY/P.bedY;
+  var vert = fy>0.66 ? "back" : (fy<0.34 ? "front" : "mid");
+  var horz = fx<0.34 ? "left" : (fx>0.66 ? "right" : "center");
+  if(vert==="mid" && horz==="center") return "bed centre";
+  return vert + "-" + horz;
+}
+function placeMarker(animate){
+  marker.classList.toggle("dragging", !animate);
+  marker.setAttribute("transform","translate("+toSvgX(P.parkX)+","+toSvgY(P.parkY)+")");
+}
+function setPark(x,y,opts){
+  opts = opts || {};
+  P.parkX = clamp(round(x,0.5),0,P.bedX);
+  P.parkY = clamp(round(y,0.5),0,P.bedY);
+  placeMarker(!opts.live);
+  if(!opts.silent){ $("parkX").value = P.parkX; $("parkY").value = P.parkY; }
+  refreshReadout(); regenerate(); save();
+}
+function refreshReadout(){
+  var c = clearance(), pill = $("safePill");
+  $("roX").innerHTML = '<span class="k">X</span>'+fmt(P.parkX);
+  $("roY").innerHTML = '<span class="k">Y</span>'+fmt(P.parkY);
+  $("roClear").textContent = fmt(c);
+  $("roX").classList.remove("flash"); void $("roX").offsetWidth; $("roX").classList.add("flash");
+  pill.className = "pill " + (c<0 ? "is-bad" : (c<P.margin ? "is-warn" : "is-ok"));
+  $("safeTxt").textContent = c<0 ? "Off the bed" : (c<P.margin ? fmt(c)+" mm from the edge" : "Inside safe area");
+  syncPad();
+}
+function anchors(){
+  var m=P.margin, bx=P.bedX, by=P.bedY;
+  return [[m,by-m],[bx/2,by-m],[bx-m,by-m],[m,by/2],[bx/2,by/2],[bx-m,by/2],[m,m],[bx/2,m],[bx-m,m]];
+}
+function buildPad(){
+  var a = anchors(), names = ["Back left","Back centre","Back right","Mid left","Bed centre","Mid right","Front left","Front centre","Front right"], h="";
+  for(var i=0;i<9;i++){
+    h += '<button type="button" data-i="'+i+'" aria-pressed="false" title="'+names[i]+' - X'+fmt(a[i][0])+' Y'+fmt(a[i][1])+'" aria-label="'+names[i]+'"><span></span></button>';
+  }
+  $("pad").innerHTML = h;
+}
+function syncPad(){
+  var a = anchors(), b = $("pad").children;
+  for(var i=0;i<b.length;i++){
+    b[i].setAttribute("aria-pressed", (Math.abs(a[i][0]-P.parkX)<0.26 && Math.abs(a[i][1]-P.parkY)<0.26) ? "true":"false");
+  }
+}
+
+/* ---------- pointer + keyboard ---------- */
+function eventToBed(ev){
+  var ctm = svg.getScreenCTM(); if(!ctm) return null;
+  var p = svg.createSVGPoint(); p.x = ev.clientX; p.y = ev.clientY;
+  var u = p.matrixTransform(ctm.inverse());
+  return { x: fromSvgX(u.x), y: fromSvgY(u.y) };
+}
+function pulseEcho(){
+  echo.setAttribute("cx", toSvgX(P.parkX)); echo.setAttribute("cy", toSvgY(P.parkY));
+  echo.classList.remove("go"); void echo.getBoundingClientRect(); echo.classList.add("go");
+}
+svg.addEventListener("pointerdown", function(ev){
+  var b = eventToBed(ev); if(!b) return;
+  dragging = true; svg.setPointerCapture(ev.pointerId);
+  setPark(b.x,b.y,{live:false}); pulseEcho(); ev.preventDefault();
+});
+svg.addEventListener("pointermove", function(ev){
+  if(!dragging) return;
+  var b = eventToBed(ev); if(b) setPark(b.x,b.y,{live:true});
+});
+function endDrag(ev){
+  if(!dragging) return;
+  dragging = false;
+  try{ svg.releasePointerCapture(ev.pointerId); }catch(e){}
+  placeMarker(true);
+}
+svg.addEventListener("pointerup", endDrag);
+svg.addEventListener("pointercancel", endDrag);
+svg.addEventListener("keydown", function(ev){
+  var d = ev.shiftKey?10:1, dx=0, dy=0;
+  if(ev.key==="ArrowLeft") dx=-d;
+  else if(ev.key==="ArrowRight") dx=d;
+  else if(ev.key==="ArrowUp") dy=d;
+  else if(ev.key==="ArrowDown") dy=-d;
+  else return;
+  ev.preventDefault();
+  setPark(P.parkX+dx, P.parkY+dy, {});
+});
+
+/* ---------------------------------------------------------------------------
+   G-code generation.
+
+   HARD RULE: Creality Print template-parses the entire box, comments and all,
+   and reads any square-bracketed text as a slicer variable. The layer_num
+   placeholder must be the ONLY square bracket in the output. The same is true
+   of every PrusaSlicer- and Orca-derived slicer here, so the rule is applied
+   universally. assertBrackets() enforces it rather than trusting the template.
+--------------------------------------------------------------------------- */
+function pad33(cmd){ return cmd.length>=33 ? cmd+" " : (cmd+"                                 ").slice(0,33); }
+function jogCommand(){ return "G1 X"+fmt(P.parkX)+" Y"+fmt(P.parkY)+" F6000"; }
+
+function buildGcode(){
+  var m = model(), sl = slicer(), C = CATALOG[P.mfr], L = [];
+  var line = "; ===========================================================================";
+
+  L.push(line);
+  L.push("; PROCAM camera trigger - " + sl.box);
+  L.push(";");
+  L.push("; Printer : " + C.name + " " + m.name + ", bed " + P.bedX + " x " + P.bedY + " mm");
+  L.push("; Profile : " + P.label);
+  L.push("; Slicer  : " + sl.name + ", " + sl.path);
+  L.push("; Park    : X"+fmt(P.parkX)+" Y"+fmt(P.parkY)+", "+anchorName()+", "+fmt(clearance())+" mm clearance");
+  L.push("; Motion  : Z lift "+P.zlift+" mm, park feed "+P.feed+" mm/min, dwell "+P.dwell+" ms");
+  L.push("; Trigger : M117 "+P.token+" plus the layer number");
+  L.push(";");
+
+  if(m.mr === "none"){
+    L.push("; !! "+C.name+" "+m.name+" does not expose Moonraker. This trigger method");
+    L.push("; !! reads Klipper's display_status over Moonraker's websocket, so this");
+    L.push("; !! box cannot fire the camera on this printer. Kept for reference.");
+    L.push(";");
+  } else if(m.mr === "rooted"){
+    L.push("; !! Moonraker is not reachable on this printer's stock firmware. Root it");
+    L.push("; !! first, or the ESP32 has nothing to subscribe to.");
+    L.push(";");
+  }
+
+  L.push("; Every command below is stock Klipper - no custom macros, so no SSH and");
+  L.push("; no printer.cfg edits are needed.");
+  L.push(";");
+  L.push("; WARNING - this slicer template-parses the whole box, comments included,");
+  L.push("; and reads any square-bracketed text as a slicer variable. The layer_num");
+  L.push("; placeholder on the M117 line is the only square bracket in this file.");
+  L.push("; Add another one anywhere, even inside a comment, and the slice fails");
+  L.push("; with \"Variable does not exist\".");
+  L.push(";");
+  L.push("; Why M117 and not RESPOND - RESPOND needs a respond section in");
+  L.push("; printer.cfg that a stock Creality config does not have, confirmed on a");
+  L.push("; real K2 Pro by \"Unknown command:RESPOND\" in Fluidd. M117 writes to");
+  L.push("; display_status, already active because the web UI status bar uses it.");
+  L.push(";");
+  L.push("; Why the layer number is appended - Klipper only reports a status field");
+  L.push("; to Moonraker when its value actually changed. Without a per-layer");
+  L.push("; suffix every layer would send identical text and only the first would");
+  L.push("; ever reach the ESP32.");
+  L.push(";");
+  L.push("; BEFORE AN UNATTENDED PRINT, jog there by hand with the printer idle and");
+  L.push("; the nozzle already clear of the bed:");
+  L.push(";   " + jogCommand());
+  L.push("; An out-of-range move mid-print aborts the whole job, not just one photo.");
+  L.push(line);
+  L.push("");
+  L.push("SAVE_GCODE_STATE NAME=procam");
+  L.push("");
+  L.push("G91");
+  L.push(pad33("G1 Z"+P.zlift+" F1200") + "; lift clear before crossing the bed");
+  L.push("G90");
+  L.push(pad33("G1 X"+fmt(P.parkX)+" Y"+fmt(P.parkY)+" F"+P.feed) + "; park - " + anchorName());
+  L.push(pad33("M400") + "; wait for the park move to actually finish");
+  L.push("");
+  L.push("M117 " + P.token + " [layer_num]");
+  L.push("                                 ; tells the ESP32, watching");
+  L.push("                                 ; display_status over Moonraker, to");
+  L.push("                                 ; fire the shutter now");
+  L.push("");
+  L.push(pad33("G4 P"+P.dwell) + "; hold still while the shutter fires");
+  L.push("");
+  L.push("RESTORE_GCODE_STATE NAME=procam MOVE=1 MOVE_SPEED=" + P.restore);
+  L.push("; back to the resume point. The slicer's own retract and deretract");
+  L.push("; bracket this block, so there is no manual retract here.");
+  return L.join("\n");
+}
+
+function assertBrackets(text){
+  var hits = text.match(/\[[^\]]*\]/g) || [];
+  var bad = hits.filter(function(h){ return h !== "[layer_num]"; });
+  var stray = (text.replace(/\[layer_num\]/g,"").match(/[\[\]]/g) || []).length;
+  return { ok: bad.length===0 && stray===0 && hits.length===1, bad: bad, stray: stray };
+}
+
+function buildFirmware(){
+  var still = P.dwell - FW_TRIGGER_DELAY_MS, L = [];
+  L.push("// PROCAM Trigger Console - firmware constants");
+  L.push("// Profile: " + P.label);
+  L.push("// File: procam_remote_trigger_moonraker.ino");
+  L.push("//");
+  L.push("// Only TRIGGER_TOKEN has to agree with the G-code box. The two timing");
+  L.push("// values below are the firmware's own and are shown for reference.");
+  L.push("");
+  L.push('#define TRIGGER_TOKEN  "'+P.token+'"'+"   // line "+FW_TOKEN_LINE+" - must equal the M117 token");
+  L.push("");
+  L.push("// Already in the firmware. Change only with a reason:");
+  L.push("#define OC_MOONRAKER_TRIGGER_DELAY_MS "+FW_TRIGGER_DELAY_MS+"    // wait after the message before firing");
+  L.push("#define OC_RETRIGGER_LOCKOUT_MS       "+FW_LOCKOUT_MS+"   // ignore repeat triggers inside this window");
+  L.push("");
+  L.push("/* With this profile's settings:");
+  L.push(" *   dwell "+P.dwell+" ms - the head holds still this long after M117");
+  L.push(" *   shutter fires about "+FW_TRIGGER_DELAY_MS+" ms in, leaving "+still+" ms of stillness after it");
+  L.push(" *   layers finishing in under "+FW_LOCKOUT_MS+" ms will not fire a second shot");
+  if(P.host) L.push(" *   this printer's Moonraker: " + P.host);
+  L.push(" */");
+  return L.join("\n");
+}
+
+/* ---------- syntax colouring ---------- */
+function hlGcode(text){
+  return esc(text).split("\n").map(function(l){
+    if(/^\s*;/.test(l)) return '<span class="c">'+l+'</span>';
+    var m = l.match(/^([A-Z][A-Z0-9_]*)(.*)$/); if(!m) return l;
+    var rest = m[2], ci = rest.indexOf(";");
+    var code = ci>=0 ? rest.slice(0,ci) : rest;
+    var cmt  = ci>=0 ? '<span class="c">'+rest.slice(ci)+'</span>' : "";
+    code = code.replace(/\[layer_num\]/g,'<span class="ph">[layer_num]</span>');
+    return '<span class="cmd">'+m[1]+'</span>'+code+cmt;
+  }).join("\n");
+}
+function hlC(text){
+  return esc(text).split("\n").map(function(l){
+    if(/^\s*(\/\/|\*|\/\*)/.test(l)) return '<span class="c">'+l+'</span>';
+    var m = l.match(/^(#define)(\s+\S+)(.*)$/); if(!m) return l;
+    var rest = m[3], ci = rest.indexOf("//");
+    var code = ci>=0 ? rest.slice(0,ci) : rest;
+    var cmt  = ci>=0 ? '<span class="c">'+rest.slice(ci)+'</span>' : "";
+    return '<span class="cmd">'+m[1]+'</span><span class="ph">'+m[2]+'</span>'+code+cmt;
+  }).join("\n");
+}
+function note(kind, ico, html){
+  return '<div class="note '+kind+'"><span class="ico">'+ico+'</span><span>'+html+'</span></div>';
+}
+
+function renderTimingNotes(){
+  var out = "", still = P.dwell - FW_TRIGGER_DELAY_MS;
+  if(still < 300){
+    out += note("bad","!","Dwell of <b>"+P.dwell+" ms</b> barely clears the firmware's own "+FW_TRIGGER_DELAY_MS+" ms trigger delay. The head may start moving while the shutter is still open. Give it at least 600 ms.");
+  } else {
+    out += note("flat","i","Shutter fires about <b>"+FW_TRIGGER_DELAY_MS+" ms</b> into the dwell, leaving <b>"+still+" ms</b> of stillness after it.");
+  }
+  out += note("flat","i","Layers that finish in under <b>"+FW_LOCKOUT_MS+" ms</b> will not fire a second shot &mdash; the firmware's re-trigger lockout swallows them.");
+  if(P.token !== "PROCAM_TRIGGER"){
+    out += note("warn","!","Token changed. Update <code>TRIGGER_TOKEN</code> on line "+FW_TOKEN_LINE+" of the firmware and reflash, or the ESP32 will never fire.");
+  }
+  $("timingNotes").innerHTML = out;
+}
+
+function regenerate(){
+  var g = buildGcode(), f = buildFirmware(), chk = assertBrackets(g);
+  $("outGcode").innerHTML = hlGcode(g);
+  $("outFw").innerHTML = hlC(f);
+  $("outGcode").dataset.raw = g;
+  $("outFw").dataset.raw = f;
+  if(chk.ok){
+    $("gcodeSize").textContent = g.split("\n").length + " lines";
+    $("gcodeSize").style.color = "";
+  } else {
+    $("gcodeSize").textContent = "BRACKET ERROR";
+    $("gcodeSize").style.color = "var(--danger)";
+  }
+  renderTimingNotes();
+}
+
+/* ---------------------------------------------------------------------------
+   Moonraker link. Optional - the generator works without it. A page served
+   over HTTPS cannot reach http://<printer>, so on Netlify or an Artifact URL
+   these controls stay disabled and say why. Served over plain HTTP from a NAS
+   or the ESP32 on the same LAN, they work.
+--------------------------------------------------------------------------- */
+function logLine(cls,msg){
+  var el = $("mrLog"), d = document.createElement("div");
+  d.innerHTML = '<span class="t">'+new Date().toLocaleTimeString()+'</span> <span class="'+cls+'">'+esc(msg)+'</span>';
+  el.appendChild(d); el.scrollTop = el.scrollHeight;
+}
+function setLink(kind,text){
+  $("linkPill").className = "pill" + (kind ? " is-"+kind : "");
+  $("linkTxt").textContent = text;
+}
+function mixedContentBlocked(){ return location.protocol === "https:"; }
+function renderBlockedNote(){
+  if(mixedContentBlocked()){
+    $("mrBlocked").innerHTML = note("warn","!","This page is served over <b>HTTPS</b>, and browsers block requests from an HTTPS page to a plain-HTTP printer. The generator works fine; the live controls do not. To use them, serve this file over <b>http://</b> from your NAS or the ESP32 on the printer's network.");
+    return true;
+  }
+  $("mrBlocked").innerHTML = "";
+  return false;
+}
+function mrBase(){ return "http://" + String(P.host||"").replace(/^https?:\/\//,"").replace(/\/+$/,""); }
+function mrFetch(path,init){
+  var ctl = new AbortController(), timer = setTimeout(function(){ ctl.abort(); },5000);
+  init = init || {}; init.signal = ctl.signal;
+  return fetch(mrBase()+path, init)
+    .then(function(r){ return r.json().then(function(j){ return {status:r.status, body:j}; }); })
+    .finally(function(){ clearTimeout(timer); });
+}
+function setLiveButtons(on){
+  ["btnJog","btnFire","btnHome"].forEach(function(id){ $(id).disabled = !on; });
+}
+function checkLink(){
+  if(!P.host){
+    logLine("er","No Moonraker address saved for "+P.label+". Add one above.");
+    setLink("bad","No address"); setLiveButtons(false); return;
+  }
+  if(model().mr === "none"){
+    logLine("er",CATALOG[P.mfr].name+" "+model().name+" has no Moonraker API. Nothing to connect to.");
+    setLink("bad","No Moonraker"); setLiveButtons(false); return;
+  }
+  if(renderBlockedNote()){
+    setLink("warn","Blocked by HTTPS");
+    logLine("er","Cannot reach a http:// printer from an https:// page.");
+    setLiveButtons(false); return;
+  }
+  setLink("", "Checking "+P.host);
+  logLine("t","GET /printer/info");
+  mrFetch("/printer/info").then(function(r){
+    var st = (r.body && r.body.result && r.body.result.state) || "unknown";
+    mrOK = true; setLink("ok","Klipper "+st);
+    logLine("ok","Connected to "+P.label+". Klipper state: "+st);
+    setLiveButtons(true); queryHomed();
+  }).catch(function(e){
+    mrOK = false; setLink("bad","No link");
+    logLine("er","Unreachable: "+(e&&e.message?e.message:e)+". Check the address, and that cors_domains in moonraker.conf allows this page.");
+    setLiveButtons(false);
+  });
+}
+function queryHomed(){
+  mrFetch("/printer/objects/query?toolhead").then(function(r){
+    var th = r.body && r.body.result && r.body.result.status && r.body.result.status.toolhead;
+    if(!th) return;
+    var h = th.homed_axes || "";
+    var ok = h.indexOf("x")>=0 && h.indexOf("y")>=0;
+    logLine(ok?"ok":"er","Homed axes: "+(h||"none")+(ok?"":" - home X and Y before jogging."));
+  }).catch(function(){});
+}
+function sendScript(script,label){
+  logLine("t", label+": "+script.replace(/\n/g," / "));
+  return mrFetch("/printer/gcode/script?script="+encodeURIComponent(script),{method:"POST"})
+    .then(function(r){
+      if(r.body && r.body.error){
+        logLine("er","Rejected: "+(r.body.error.message||JSON.stringify(r.body.error)));
+        return false;
+      }
+      logLine("ok",label+" accepted."); return true;
+    })
+    .catch(function(e){ logLine("er",label+" failed: "+(e&&e.message?e.message:e)); return false; });
+}
+
+/* ---------- apply a profile to the whole UI ---------- */
+function applyProfile(){
+  renderProfiles();
+  renderChain();
+  renderPrinterNote();
+  renderBed();
+  buildPad();
+  $("parkX").value = P.parkX; $("parkY").value = P.parkY;
+  $("margin").value = P.margin;
+  $("zlift").value = P.zlift; $("feed").value = P.feed;
+  $("dwell").value = P.dwell; $("restore").value = P.restore;
+  $("token").value = P.token; $("mrHost").value = P.host || "";
+  placeMarker(false);
+  refreshReadout();
+  regenerate();
+  mrOK = false;
+  setLiveButtons(false);
+  setLink("", mixedContentBlocked() ? "Live controls need HTTP" : (P.host ? "Printer link idle" : "No address saved"));
+  renderBlockedNote();
+}
+
+/* ---------- wiring ---------- */
+$("profiles").addEventListener("click", function(ev){
+  var kill = ev.target.closest("[data-kill]");
+  if(kill){
+    ev.stopPropagation();
+    var id = kill.dataset.kill;
+    var p = DB.profiles.filter(function(x){ return x.id===id; })[0];
+    if(!p || DB.profiles.length<2) return;
+    if(!confirm("Remove the printer profile \""+p.label+"\"? Its park point and settings go with it.")) return;
+    DB.profiles = DB.profiles.filter(function(x){ return x.id!==id; });
+    activate(DB.activeId===id ? DB.profiles[0].id : DB.activeId);
+    return;
+  }
+  if(ev.target.closest("#btnAddOpen")){
+    $("addForm").hidden = false;
+    $("afName").value = "";
+    $("afName").focus();
+    return;
+  }
+  var card = ev.target.closest(".pcard[data-id]");
+  if(card) activate(card.dataset.id);
+});
+$("afMfr").addEventListener("change", fillModels);
+$("afModel").addEventListener("change", suggestName);
+$("afCancel").addEventListener("click", function(){ $("addForm").hidden = true; });
+$("afAdd").addEventListener("click", function(){
+  var mfr = $("afMfr").value, md = $("afModel").value;
+  var label = $("afName").value.trim() || (CATALOG[mfr].name+" "+CATALOG[mfr].models[md].name);
+  var p = defaults(mfr, md, label);
+  DB.profiles.push(p);
+  $("addForm").hidden = true;
+  activate(p.id);
+});
+
+$("parkX").addEventListener("input", function(){
+  var v = parseFloat(this.value); if(!isNaN(v)) setPark(v, P.parkY, {silent:true});
+});
+$("parkY").addEventListener("input", function(){
+  var v = parseFloat(this.value); if(!isNaN(v)) setPark(P.parkX, v, {silent:true});
+});
+function numHandler(id,key,lo,hi,after){
+  $(id).addEventListener("input", function(){
+    var v = parseFloat(this.value);
+    if(isNaN(v)){ this.classList.add("is-bad"); return; }
+    this.classList.toggle("is-bad", v<lo || v>hi);
+    P[key] = clamp(v,lo,hi);
+    if(after) after();
+    regenerate(); save();
+  });
+}
+numHandler("margin","margin",0,100,function(){ renderSafe(); buildPad(); refreshReadout(); });
+numHandler("zlift","zlift",0,50);
+numHandler("feed","feed",600,60000);
+numHandler("dwell","dwell",0,10000);
+numHandler("restore","restore",10,1000);
+
+$("token").addEventListener("input", function(){
+  P.token = this.value.trim().replace(/[\[\]\s]/g,"_") || "PROCAM_TRIGGER";
+  if(this.value !== P.token) this.value = P.token;
+  regenerate(); save();
+});
+$("mrHost").addEventListener("input", function(){
+  P.host = this.value.trim();
+  renderProfiles(); regenerate(); save();
+});
+
+$("pad").addEventListener("click", function(ev){
+  var b = ev.target.closest("button"); if(!b) return;
+  var a = anchors()[+b.dataset.i];
+  setPark(a[0],a[1],{}); pulseEcho();
+});
+
+function copyBtn(btnId,preId){
+  $(btnId).addEventListener("click", function(){
+    var txt = $(preId).dataset.raw || "", btn = this, old = btn.textContent;
+    var done = function(ok){
+      btn.textContent = ok ? "Copied" : "Press Ctrl+C";
+      setTimeout(function(){ btn.textContent = old; }, 1400);
+    };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(function(){ done(true); }, function(){ done(false); });
+    } else {
+      var ta = document.createElement("textarea");
+      ta.value = txt; document.body.appendChild(ta); ta.select();
+      try{ document.execCommand("copy"); done(true); }catch(e){ done(false); }
+      document.body.removeChild(ta);
+    }
+  });
+}
+copyBtn("btnCopyGcode","outGcode");
+copyBtn("btnCopyFw","outFw");
+
+$("btnConnect").addEventListener("click", checkLink);
+$("btnHome").addEventListener("click", function(){
+  sendScript("G28 X Y","Home X Y").then(function(ok){ if(ok) setTimeout(queryHomed,1200); });
+});
+$("btnJog").addEventListener("click", function(){
+  sendScript("G90\n"+jogCommand(),"Jog to park point").then(function(ok){
+    if(ok) logLine("ok","No range error. X"+fmt(P.parkX)+" Y"+fmt(P.parkY)+" is reachable on "+P.label+".");
+  });
+});
+$("btnFire").addEventListener("click", function(){
+  fireSeq++;
+  sendScript("M117 "+P.token+" TEST"+fireSeq,"Test fire").then(function(ok){
+    if(ok){ marker.classList.remove("fired"); void marker.getBoundingClientRect(); marker.classList.add("fired"); }
+  });
+});
+
+/* ---------- init ---------- */
+load();
+fillMfr();
+activate(DB.activeId);
+
+})();
+</script>

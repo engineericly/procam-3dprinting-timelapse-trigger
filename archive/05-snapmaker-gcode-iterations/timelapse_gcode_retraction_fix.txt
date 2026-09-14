@@ -1,0 +1,53 @@
+; ===========================================================================
+; FX30 camera trigger - Timelapse G-code box
+; Simple version - no manual purge pad. Now that Orca's own wipe tower is
+; back in use (duplicate-filament trick) and "Avoid crossing walls" is on,
+; the tower handles the purge and the slicer handles routing the travel
+; safely around the object - so this box just needs to do the camera
+; trigger itself.
+;
+; RETRACTION FIX: the old version hardcoded E-0.8, tuned against whatever
+; filament was loaded during earlier testing. Your PETG profile's own
+; calibrated retraction_length is 1.5mm - every ordinary travel move
+; elsewhere in this same print already retracts that much. Retracting
+; less than that right before a 2-second stationary dwell, on a hot 255C
+; PETG melt, is exactly what leaves extra hair at the trigger point.
+; {retraction_length[0]} pulls the active filament's own tuned value
+; instead of a guessed constant, so this always matches - 1.5mm here,
+; back to 0.8mm automatically if you print PLA again. (Index 0 = first
+; extruder; change it if your primary color for a given print is on a
+; different extruder.)
+;
+; No ;BEFORE_LAYER_CHANGE marker or G92 E0 here - the profile inserts
+; those automatically regardless of what's in this box (confirmed
+; earlier), same for TIMELAPSE_TAKE_FRAME / DEFECT_DETECTION_DETECT.
+; ===========================================================================
+
+; ---------------- FX30 camera trigger ----------------
+SAVE_GCODE_STATE NAME=fx30      ; remember position, feedrate and E mode
+M83                              ; relative extrusion
+G1 E-{retraction_length[0]} F2400 ; retract by the filament's own tuned
+                                   ; amount, not a guessed constant
+G91
+G1 Z2 F1200                      ; lift 2mm clear of the print/tower
+G90
+
+G1 X250 Y265 F18000              ; fast diagonal to the approach point
+G1 X262.8 Y265 F6000              ; press the switch -> camera triggered
+M400                              ; wait for the move to actually finish
+G4 P100                           ; hold the contact closed
+
+G1 X248 Y265 F6000                 ; back off clear of the switch
+M400
+G4 P2000                          ; hold still while the shutter fires -
+                                   ; nozzle stays retracted through this
+                                   ; whole dwell
+
+RESTORE_GCODE_STATE NAME=fx30 MOVE=1 MOVE_SPEED=300
+; the move above crosses back to the resume point while still retracted
+
+M83
+G1 E{retraction_length[0]} F2400   ; un-retract by the same amount, only
+                                    ; now, back at the resume point -
+                                    ; ready to print
+; -------------- end FX30 camera trigger --------------

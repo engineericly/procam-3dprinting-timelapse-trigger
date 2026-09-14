@@ -1,0 +1,73 @@
+# fx30-trigger.service - systemd unit for fx30_daemon.py
+#
+# Install (adjust the paths/user to match your actual system - see the notes
+# at the bottom of this file):
+#   sudo mkdir -p /opt/fx30-trigger
+#   sudo cp fx30_daemon.py fx30_fire.py /opt/fx30-trigger/
+#   sudo cp fx30-trigger.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now fx30-trigger.service
+#
+# Check it's actually running and connected:
+#   sudo systemctl status fx30-trigger.service
+#   sudo journalctl -u fx30-trigger.service -f
+#
+# Fire a test shot by hand (without touching Klipper at all):
+#   python3 /opt/fx30-trigger/fx30_fire.py FIRE
+
+[Unit]
+Description=Sony FX30 PTP/IP trigger daemon
+# Starts after the network is reachable - Wants+After is a soft dependency,
+# it won't block boot if the network is slow, but gives the daemon its best
+# shot at the camera already being reachable on start.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/fx30-trigger/fx30_daemon.py
+Restart=always
+RestartSec=3
+# Uncomment and edit if the Klipper host's network interface isn't wlan0,
+# or if you've given the camera a fixed/reserved IP and want to skip the
+# subnet scan entirely (faster, and immune to picking up a second device
+# on port 15740 by mistake):
+#Environment=FX30_IFACE=wlan0
+#Environment=FX30_CAMERA_IP=192.168.1.50
+#Environment=FX30_SOCK_PATH=/run/fx30-trigger/trigger.sock
+
+# RuntimeDirectory creates /run/fx30-trigger (root-owned, mode 0755) before
+# the daemon starts, and removes it when the service stops - matches the
+# default FX30_SOCK_PATH above.
+RuntimeDirectory=fx30-trigger
+
+# Run as a low-privilege user rather than root if your system has one set
+# up already; root is left as the default here only because it's guaranteed
+# to have permission to open the runtime directory and the network socket.
+# User=klipper
+
+[Install]
+WantedBy=multi-user.target
+
+# -----------------------------------------------------------------------
+# NOTES - things you need to confirm on the actual U1 controller, since none
+# of this can be verified without shell access to it:
+#
+# 1. Does the U1's Klipper host even run systemd? Most Klipper hosts are a
+#    Raspberry Pi or similar SBC running a normal Linux distro (systemd is
+#    standard there), but Snapmaker's controller is a proprietary board and
+#    I don't know its OS. If `systemctl` doesn't exist, this unit file is
+#    the wrong mechanism - you'd need whatever init system it actually uses
+#    (an rc.local entry, OpenRC, a Snapmaker-specific autostart hook, etc.)
+#    instead. Check with `systemctl --version` over SSH first.
+#
+# 2. Do you have SSH/shell access to that host at all, with permission to
+#    write into /opt and /etc/systemd/system? If Snapmaker locks this down,
+#    none of the daemon/service side of this is deployable as written.
+#
+# 3. Whatever directory you install this into, keep it OUTSIDE any folder
+#    Snapmaker's own firmware updater manages or overwrites - same
+#    persistence risk we already ran into with Klipper macros surviving
+#    updates. /opt/fx30-trigger is a guess at a safe, unmanaged location;
+#    you know the actual filesystem layout, so adjust if there's a better
+#    spot that's confirmed untouched by OTA updates.

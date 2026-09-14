@@ -1,0 +1,43 @@
+; ===========================================================================
+; FX30 camera trigger - Timelapse G-code box (NO-SSH / MOONRAKER VERSION)
+;
+; This is the networked design again, but instead of calling a Klipper
+; macro (FX30_TRIGGER) that needs gcode_shell_command + a script installed
+; ON the printer, it just sends a stock RESPOND message. An external daemon
+; (fx30_daemon_moonraker.py) watches for that message over Moonraker's
+; websocket API - the same API Fluidd/Mainsail themselves use - and fires
+; the camera when it sees it. Nothing is installed on the printer at all;
+; the daemon can run on your PC, a Raspberry Pi, anything on the same LAN.
+;
+; ONE PREREQUISITE, no SSH needed to satisfy it: the printer's printer.cfg
+; needs a "[respond]" section for the RESPOND command to exist at all. Check
+; from Fluidd/Mainsail's web UI (http://<printer-ip>) - open the built-in
+; gcode console/terminal and type:
+;     RESPOND MSG="test"
+; If it replies "test" back, you already have [respond] and can ignore this.
+; If it says "Unknown command", open the Configuration/file-editor panel in
+; that same web UI, open printer.cfg, add a line:
+;     [respond]
+; then Save & Restart - still entirely through the browser, no SSH.
+;
+; No ;BEFORE_LAYER_CHANGE marker or G92 E0 here - the profile inserts those
+; automatically regardless of what's in this box, same for
+; TIMELAPSE_TAKE_FRAME / DEFECT_DETECTION_DETECT.
+; ===========================================================================
+
+; ---------------- FX30 camera trigger (Moonraker, no SSH) ----------------
+M83                              ; relative extrusion
+G1 E-0.8 F2400                   ; retract, so the pause leaves no blobs at
+                                  ; the nozzle while it sits still
+
+RESPOND TYPE=command MSG="FX30_TRIGGER"
+                                  ; stock Klipper command - just echoes this
+                                  ; string into the console/API. The daemon
+                                  ; on your network is watching for it and
+                                  ; fires the shutter the moment it appears.
+
+G4 P2000                         ; hold still while the shutter fires
+
+M83
+G1 E0.8 F2400                    ; un-retract, ready to keep printing
+; -------------- end FX30 camera trigger --------------

@@ -1,0 +1,79 @@
+; ===========================================================================
+; PROCAM camera trigger - Time lapse G-code box (Creality Print, K2 Pro)
+;
+; Goes straight into Creality Print's own "Time lapse G-code" custom box
+; (Printer/Process Settings > Custom G-code). Every command below is a
+; built-in Klipper command (SAVE_GCODE_STATE, RESTORE_GCODE_STATE, M117,
+; G0/G1/G4/G90/G91, M400) - nothing here is a custom macro, so no SSH/root
+; access or printer.cfg editing is needed.
+;
+; NOTE: Creality Print parses this whole box as a template, including
+; these comments, and treats any text in square brackets as a placeholder
+; variable to substitute - the one earlier draft of this file that
+; mentioned Klipper's "respond" and "display_status" config sections in
+; square brackets failed to slice with "Variable does not exist" because
+; of exactly that. So this version avoids square brackets anywhere except
+; the one real placeholder Creality Print itself provides, on the M117
+; line below.
+;
+; Uses M117 instead of RESPOND: RESPOND needs a "respond" config section
+; in printer.cfg, which your K2 Pro's stock config doesn't have (confirmed
+; - "Unknown command:RESPOND" in Fluidd's console). M117 comes from a
+; different module ("display_status") that's already active on your
+; printer (confirmed - it ran with no error), since Fluidd/Mainsail's own
+; status bar depends on it. The ESP32 firmware subscribes to that
+; display_status.message field over Moonraker's websocket instead of
+; scanning gcode responses - see procam_remote_trigger_moonraker.ino.
+;
+; The layer_num placeholder on the end of the M117 line isn't decorative -
+; it makes each layer's message text different from the last (Klipper
+; only reports a status field to Moonraker as "changed" when its value is
+; actually different), so every layer's trigger reliably produces its own
+; push notification instead of only the first one. This is a Creality
+; Print/Orca slicer placeholder substituted at slice time, same as the
+; layer_z placeholder already used in your "Before layer change G-code"
+; box - worth opening the sliced file once to confirm it actually got
+; replaced with a real number and not left as literal placeholder text.
+;
+; K2 Pro build volume is 300x300x300mm (square bed) - this parks at
+; back-center (X150 Y290), 10mm in from the back edge. That 10mm margin is
+; a guess, not a confirmed limit - test it before trusting it in a real
+; print: type "G1 X150 Y290 F6000" into Fluidd's console first (printer
+; idle, nozzle already clear of the bed) and confirm it moves there with
+; no "Move out of range" error. If it errors, back Y off a few mm at a
+; time (Y285, Y280...) and retest until it doesn't. An out-of-range move
+; mid-print aborts the whole print, not just skips one photo, so this is
+; worth the 10 seconds to check first.
+;
+; No purge pad in this version - it relies on Creality Print's own
+; auto-retract (fires right before this box) and its own auto-deretract
+; (fires automatically after this box, right before the next extrusion
+; move) to bracket the dwell cleanly, same as the very first version that
+; worked cleanly on the Snapmaker before any purge pad was added. A
+; height-tracked purge pad needs persistent state across layers, which
+; only a gcode_macro can hold - intentionally left out here to keep this a
+; single drop-in block with zero SSH. If you see oozing at the park corner
+; once you've got a real print running, the fix is either shortening the
+; dwell, lengthening retraction slightly, or (as a later step, needing one
+; SSH macro) bringing back the same height-capped oval purge pad used on
+; the Snapmaker setup.
+; ===========================================================================
+
+SAVE_GCODE_STATE NAME=procam
+
+G91
+G1 Z2 F1200                      ; lift 2mm clear before crossing the bed
+G90
+G1 X150 Y290 F18000              ; park - back-center, 10mm margin (test first, see note above)
+M400                              ; wait for the park move to actually finish
+
+M117 PROCAM_TRIGGER [layer_num]
+                                  ; tells the ESP32 (subscribed to
+                                  ; display_status over Moonraker) to fire
+                                  ; the shutter now
+
+G4 P1200                         ; hold still while the shutter fires
+
+RESTORE_GCODE_STATE NAME=procam MOVE=1 MOVE_SPEED=300
+; crosses back to the resume point - no manual retract/un-retract here,
+; Creality Print's own retract/deretract pairing handles it
