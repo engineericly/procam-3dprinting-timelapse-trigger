@@ -469,8 +469,8 @@ footer.foot code{font-family:var(--f-mono)}
         <div class="body" style="display:flex;flex-direction:column;gap:12px">
           <div class="field">
             <label for="mrHost">Moonraker address</label>
-            <input type="text" id="mrHost" spellcheck="false" autocomplete="off" placeholder="192.168.1.50:7125 or https://printer.example.ts.net">
-            <span class="hint">Saved with this printer. A bare host like <code>192.168.1.50:7125</code> is treated as HTTP; paste a full <code>https://</code> URL to use a tunnel. Moonraker's default port is 7125.</span>
+            <input type="text" id="mrHost" spellcheck="false" autocomplete="off" placeholder="192.168.1.50:7125">
+            <span class="hint">Saved with this printer. Moonraker's default port is 7125.</span>
           </div>
           <div id="mrBlocked"></div>
           <div class="mr-actions">
@@ -1116,9 +1116,8 @@ function setLink(kind,text){
 }
 /* The address may be a bare host ("192.168.1.50:7125") or a full URL. A bare
    host is assumed to be plain HTTP, which is what a stock Moonraker serves.
-   Give Moonraker a real HTTPS address - a Tailscale Serve or Cloudflare Tunnel
-   hostname, say - and enter that instead, and the live controls work even from
-   an HTTPS page. */
+   A full URL is used exactly as given, so an https:// address works if the
+   printer has one. */
 function mrBase(){
   var h = String(P.host||"").trim().replace(/\/+$/,"");
   if(!h) return "";
@@ -1130,7 +1129,7 @@ function mixedContentBlocked(){
 }
 function renderBlockedNote(){
   if(mixedContentBlocked()){
-    $("mrBlocked").innerHTML = note("warn","!","This page is on <b>HTTPS</b> but the printer address is plain <b>HTTP</b>, and browsers block that combination. Two ways round it: give Moonraker an <b>https://</b> address (a Tailscale Serve or Cloudflare Tunnel hostname) and enter that above, or open this page over <b>http://</b> from a machine on the printer's network. The generator works either way.");
+    $("mrBlocked").innerHTML = note("warn","!","This page is on <b>HTTPS</b> but the printer address is plain <b>HTTP</b>, and browsers block that combination. Open this page over <b>http://</b> from a machine on the printer's network to use the live controls. The generator works either way.");
     return true;
   }
   $("mrBlocked").innerHTML = "";
