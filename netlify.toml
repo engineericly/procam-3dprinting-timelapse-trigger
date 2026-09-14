@@ -1,0 +1,11 @@
+# The site is the console only - firmware, slicer g-code and the archive are
+# source, not web content. Everything is static; there is no build step.
+[build]
+  publish = "console"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
+    X-Frame-Options = "SAMEORIGIN"
