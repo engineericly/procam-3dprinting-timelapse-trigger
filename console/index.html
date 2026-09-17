@@ -685,7 +685,7 @@ function defaults(mfr, model, label){
 
 var DB = { profiles: [], activeId: null };
 var P = null;                 /* the active profile */
-var dragging = false, fireSeq = 0, mrOK = false;
+var dragging = false, mrOK = false;
 
 var $ = function(id){ return document.getElementById(id); };
 var svg = $("bed"), marker = $("marker"), echo = $("echo");
@@ -1333,8 +1333,11 @@ $("btnJog").addEventListener("click", function(){
   });
 });
 $("btnFire").addEventListener("click", function(){
-  fireSeq++;
-  sendScript("M117 "+P.token+" TEST"+fireSeq,"Test fire").then(function(ok){
+  /* Klipper only pushes display_status to Moonraker when the text changes, so
+     identical text twice is silently ignored. A timestamp suffix makes every
+     press unique - including across page reloads - and "TEST" keeps it from
+     ever matching a print's own "<token> <layer>" or "<token> END". */
+  sendScript("M117 "+P.token+" TEST-"+Date.now().toString(36),"Test fire").then(function(ok){
     if(ok){ marker.classList.remove("fired"); void marker.getBoundingClientRect(); marker.classList.add("fired"); }
   });
 });
