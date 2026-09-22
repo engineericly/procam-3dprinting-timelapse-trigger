@@ -13,8 +13,8 @@ is not named after one.
 | Path | What |
 |---|---|
 | `firmware/` | ESP32-C3 firmware, the current working build |
-| `slicer/` | The Creality Print time lapse G-code box, as pasted into the slicer |
-| `console/` | Web dashboard: printer profiles, park-point picker, G-code generator |
+| `slicer/` | The Creality Print time lapse G-code box and the matching machine end G-code, as pasted into the slicer |
+| `console/` | Web dashboard: printer profiles, park-point picker, and generators for the time lapse box, end G-code and start line |
 | `archive/` | Every superseded approach, in five dated eras. Read `archive/README.md` before reusing anything from it. |
 
 ## Project continuity lives in the AI-OS vault

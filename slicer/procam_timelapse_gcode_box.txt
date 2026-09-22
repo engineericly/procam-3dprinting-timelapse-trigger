@@ -35,15 +35,14 @@
 ; box - worth opening the sliced file once to confirm it actually got
 ; replaced with a real number and not left as literal placeholder text.
 ;
-; K2 Pro build volume is 300x300x300mm (square bed) - this parks at
-; back-center (X150 Y290), 10mm in from the back edge. That 10mm margin is
-; a guess, not a confirmed limit - test it before trusting it in a real
-; print: type "G1 X150 Y290 F6000" into Fluidd's console first (printer
-; idle, nozzle already clear of the bed) and confirm it moves there with
-; no "Move out of range" error. If it errors, back Y off a few mm at a
-; time (Y285, Y280...) and retest until it doesn't. An out-of-range move
-; mid-print aborts the whole print, not just skips one photo, so this is
-; worth the 10 seconds to check first.
+; Parks at the back-left corner, X0 Y300 - the same point the end G-code
+; uses, so the finished print comes to rest in exactly the pose of the
+; timelapse frames. Checked against this K2 Pro's own travel limits, read
+; from Moonraker: X runs -8.9 to 302 and Y runs -6.5 to 302, so this move
+; cannot raise "Move out of range". The head was also driven there with
+; the printer idle and reported X0 Y300. If you change it, change the end
+; G-code to the same point and keep it inside those limits - an
+; out-of-range move mid-print aborts the whole job, not just one photo.
 ;
 ; No purge pad in this version - it relies on Creality Print's own
 ; auto-retract (fires right before this box) and its own auto-deretract
@@ -64,7 +63,7 @@ SAVE_GCODE_STATE NAME=procam
 G91
 G1 Z2 F1200                      ; lift 2mm clear before crossing the bed
 G90
-G1 X150 Y290 F18000              ; park - back-center, 10mm margin (test first, see note above)
+G1 X0 Y300 F18000                ; park - back-left corner, same point as the end G-code
 M400                              ; wait for the park move to actually finish
 
 M117 PROCAM_TRIGGER [layer_num]

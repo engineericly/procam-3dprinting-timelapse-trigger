@@ -1,0 +1,37 @@
+; ===========================================================================
+; PROCAM camera trigger - Machine end G-code (Creality Print, K2 Pro)
+;
+; Replaces the tail of the printer profile's Machine end G-code. Parks the
+; head at the timelapse park point with the same 2 mm lift the timelapse
+; box uses, takes one final frame of the finished part, and holds that
+; pose - so the print ends exactly where the timelapse frames were taken.
+;
+; Park point and lift must match procam_timelapse_gcode_box.txt exactly.
+;
+; max_z_position is set to 0 around END_PRINT only to stop Creality's
+; END_PRINT_Z_SAFE and END_PRINT_POINT from lifting and dropping the bed,
+; then put back to 300.0, this printer's real value as read from Moonraker.
+; Nothing else in END_PRINT moves the toolhead, apart from the CFS
+; commands BOX_END and BOX_END_PRINT, which are not verified yet.
+;
+; The first line of Machine start G-code should be a bare M117, so a
+; manual test message can never match this print's first trigger.
+; ===========================================================================
+
+{if print_sequence == "by object"}
+G91
+G1 X2 Y2 Z1 F24000
+G90
+G1 Z{max_layer_z+2} F600
+{endif}
+G91
+G1 E-1 F2100
+G1 Z2 F1200
+G90
+G1 X0 Y300 F18000
+M400
+M117 PROCAM_TRIGGER END
+G4 P1200
+SET_GCODE_VARIABLE MACRO=PRINTER_PARAM VARIABLE=max_z_position VALUE=0
+END_PRINT
+SET_GCODE_VARIABLE MACRO=PRINTER_PARAM VARIABLE=max_z_position VALUE=300.0

@@ -1,3 +1,4 @@
+<meta charset="utf-8">
 <title>PROCAM Trigger Console</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -257,6 +258,7 @@ input.is-bad{border-color:var(--danger)}
 .note b{font-weight:600}
 .note code{font-family:var(--f-mono);font-size:12px}
 .notes{display:flex;flex-direction:column;gap:8px}
+.endnotes{padding:12px 16px;border-top:1px solid var(--line-soft)}
 
 /* ---------- code output ---------- */
 .codewrap{position:relative;border-top:1px solid var(--line-soft)}
@@ -572,6 +574,29 @@ footer.foot code{font-family:var(--f-mono)}
 
     <section class="panel">
       <header>
+        <h2>Machine end G-code</h2>
+        <div class="copybar">
+          <span class="eyebrow" id="endSize"></span>
+          <button class="btn tiny" id="btnCopyEnd">Copy</button>
+        </div>
+      </header>
+      <div class="notes endnotes" id="endNotes"></div>
+      <div class="codewrap"><pre class="code" id="outEnd"></pre></div>
+    </section>
+
+    <section class="panel">
+      <header>
+        <h2>Machine start G-code</h2>
+        <div class="copybar">
+          <span class="eyebrow">first line</span>
+          <button class="btn tiny" id="btnCopyStart">Copy</button>
+        </div>
+      </header>
+      <div class="codewrap"><pre class="code" id="outStart"></pre></div>
+    </section>
+
+    <section class="panel">
+      <header>
         <h2>Firmware constants</h2>
         <div class="copybar">
           <span class="eyebrow">procam_remote_trigger_moonraker.ino</span>
@@ -605,17 +630,17 @@ footer.foot code{font-family:var(--f-mono)}
    placeholder come out as a real number. Only Creality Print has.
 --------------------------------------------------------------------------- */
 var SLICERS = {
-  crealityprint:{ name:"Creality Print", box:"Time lapse G-code",
+  crealityprint:{ name:"Creality Print", box:"Time lapse G-code", seq:true,
                   path:"Printer/Process Settings › Custom G-code", verified:true },
   anycubic:     { name:"AnycubicSlicer", box:"After layer change G-code",
                   path:"Printer Settings › Custom G-code",
                   base:"PrusaSlicer-based" },
-  orca:         { name:"OrcaSlicer", box:"After layer change G-code",
+  orca:         { name:"OrcaSlicer", box:"After layer change G-code", seq:true,
                   path:"Printer Settings › Machine G-code" },
-  elegoo:       { name:"Elegoo Slicer", box:"After layer change G-code",
+  elegoo:       { name:"Elegoo Slicer", box:"After layer change G-code", seq:true,
                   path:"Printer Settings › Machine G-code",
                   base:"OrcaSlicer-based" },
-  bambu:        { name:"Bambu Studio", box:"After layer change G-code",
+  bambu:        { name:"Bambu Studio", box:"After layer change G-code", seq:true,
                   path:"Printer Settings › Machine G-code" }
 };
 
@@ -631,14 +656,26 @@ var SLICERS = {
    Bed sizes are published build volumes. Only the K2 Pro has been measured
    against a real machine in this project - treat the rest as a starting point
    and jog-test the park point before trusting it.
+
+   travel = the printer's real axis limits (Klipper axis_minimum/maximum), where
+   known. They are what "Move out of range" is checked against, so a park point
+   inside them is safe even past the bed edge. K2 Pro values read from
+   Moonraker on the real machine.
+
+   end = Creality's END_PRINT lifts, then drops the bed to half height, driven by
+   PRINTER_PARAM.max_z_position. Setting it to 0 around END_PRINT stops that so
+   the print ends in the pose of the last timelapse frame. Only the K2 Pro has
+   been checked live; on the others the lines are generated commented out,
+   because a missing PRINTER_PARAM would error at the end of the print.
 --------------------------------------------------------------------------- */
 var CATALOG = {
   creality:{ name:"Creality", slicer:"crealityprint", models:{
-    k2pro   :{ name:"K2 Pro",        x:300, y:300, z:300, mr:"stock", verified:true },
-    k2plus  :{ name:"K2 Plus",       x:350, y:350, z:350, mr:"stock" },
-    k1max   :{ name:"K1 Max",        x:300, y:300, z:300, mr:"stock" },
-    k1c     :{ name:"K1C",           x:220, y:220, z:250, mr:"stock" },
-    k1      :{ name:"K1",            x:220, y:220, z:250, mr:"stock" },
+    k2pro   :{ name:"K2 Pro",        x:300, y:300, z:300, mr:"stock", verified:true,
+               travel:{ x:[-8.9,302], y:[-6.5,302] }, end:{ maxZ:300, verified:true } },
+    k2plus  :{ name:"K2 Plus",       x:350, y:350, z:350, mr:"stock", end:{ maxZ:350 } },
+    k1max   :{ name:"K1 Max",        x:300, y:300, z:300, mr:"stock", end:{ maxZ:300 } },
+    k1c     :{ name:"K1C",           x:220, y:220, z:250, mr:"stock", end:{ maxZ:250 } },
+    k1      :{ name:"K1",            x:220, y:220, z:250, mr:"stock", end:{ maxZ:250 } },
     e3v3ke  :{ name:"Ender-3 V3 KE", x:220, y:220, z:240, mr:"stock" }
   }},
   anycubic:{ name:"Anycubic", slicer:"anycubic", models:{
@@ -710,7 +747,7 @@ function load(){
     }
   }catch(e){}
   var seed = defaults("creality","k2pro","K2 Pro");
-  seed.parkX = 150; seed.parkY = 290;
+  seed.parkX = 0; seed.parkY = 300;
   DB = { profiles:[seed], activeId: seed.id };
 }
 function activate(id){
@@ -774,7 +811,7 @@ function renderChain(){
   $("bedTitle").textContent = CATALOG[P.mfr].name + " " + m.name + " bed";
   $("gcodeTitle").textContent = sl.box;
   $("linkFor").textContent = P.label;
-  $("footWhere").innerHTML = "Paste the box into <b>" + esc(sl.name) + " › " + esc(sl.path) + " › " + esc(sl.box) + "</b>.";
+  $("footWhere").innerHTML = "In <b>" + esc(sl.name) + " › " + esc(sl.path) + "</b>: the timelapse block goes in <b>" + esc(sl.box) + "</b>, the end block replaces the end of <b>Machine end G-code</b>, and the start line goes first in <b>Machine start G-code</b>.";
 }
 
 function renderPrinterNote(){
@@ -833,6 +870,13 @@ function renderBed(){
   renderSafe();
 }
 function renderSafe(){
+  var l = lim();
+  if(l.known){
+    /* draw the real travel envelope instead of a guessed margin */
+    $("gSafe").innerHTML = '<rect x="'+toSvgX(l.x0)+'" y="'+toSvgY(l.y1)+'" width="'+(l.x1-l.x0)+'" height="'+(l.y1-l.y0)+
+      '" fill="none" stroke="var(--ok)" stroke-width="0.7" stroke-dasharray="3 3" opacity="0.6"/>';
+    return;
+  }
   var m = P.margin, w = Math.max(0, P.bedX - m*2), h = Math.max(0, P.bedY - m*2);
   $("gSafe").innerHTML = (w>0 && h>0)
     ? '<rect x="'+toSvgX(m)+'" y="'+toSvgY(P.bedY-m)+'" width="'+w+'" height="'+h+
@@ -841,7 +885,17 @@ function renderSafe(){
 }
 
 /* ---------- park point ---------- */
-function clearance(){ return Math.min(P.parkX, P.bedX-P.parkX, P.parkY, P.bedY-P.parkY); }
+/* Where the head may legally go. Real axis limits when the model has them,
+   otherwise the bed edge as a conservative stand-in. */
+function lim(){
+  var t = P.model !== "custom" && model().travel;
+  return t ? { x0:t.x[0], x1:t.x[1], y0:t.y[0], y1:t.y[1], known:true }
+           : { x0:0, x1:P.bedX, y0:0, y1:P.bedY, known:false };
+}
+function clearance(){
+  var l = lim();
+  return Math.min(P.parkX-l.x0, l.x1-P.parkX, P.parkY-l.y0, l.y1-P.parkY);
+}
 function anchorName(){
   var fx = P.parkX/P.bedX, fy = P.parkY/P.bedY;
   var vert = fy>0.66 ? "back" : (fy<0.34 ? "front" : "mid");
@@ -855,8 +909,9 @@ function placeMarker(animate){
 }
 function setPark(x,y,opts){
   opts = opts || {};
-  P.parkX = clamp(round(x,0.5),0,P.bedX);
-  P.parkY = clamp(round(y,0.5),0,P.bedY);
+  var l = lim();
+  P.parkX = clamp(round(x,0.5),l.x0,l.x1);
+  P.parkY = clamp(round(y,0.5),l.y0,l.y1);
   placeMarker(!opts.live);
   if(!opts.silent){ $("parkX").value = P.parkX; $("parkY").value = P.parkY; }
   refreshReadout(); regenerate(); save();
@@ -867,8 +922,14 @@ function refreshReadout(){
   $("roY").innerHTML = '<span class="k">Y</span>'+fmt(P.parkY);
   $("roClear").textContent = fmt(c);
   $("roX").classList.remove("flash"); void $("roX").offsetWidth; $("roX").classList.add("flash");
-  pill.className = "pill " + (c<0 ? "is-bad" : (c<P.margin ? "is-warn" : "is-ok"));
-  $("safeTxt").textContent = c<0 ? "Off the bed" : (c<P.margin ? fmt(c)+" mm from the edge" : "Inside safe area");
+  if(lim().known){
+    /* real axis limits: inside them the move cannot be refused, however close */
+    pill.className = "pill " + (c<0 ? "is-bad" : "is-ok");
+    $("safeTxt").textContent = c<0 ? "Outside travel limits" : "Inside travel limits";
+  } else {
+    pill.className = "pill " + (c<0 ? "is-bad" : (c<P.margin ? "is-warn" : "is-ok"));
+    $("safeTxt").textContent = c<0 ? "Off the bed" : (c<P.margin ? fmt(c)+" mm from the edge" : "Inside safe area");
+  }
   syncPad();
 }
 function anchors(){
@@ -950,7 +1011,7 @@ function buildGcode(){
   L.push("; Printer : " + C.name + " " + m.name + ", bed " + P.bedX + " x " + P.bedY + " mm");
   L.push("; Profile : " + P.label);
   L.push("; Slicer  : " + sl.name + ", " + sl.path);
-  L.push("; Park    : X"+fmt(P.parkX)+" Y"+fmt(P.parkY)+", "+anchorName()+", "+fmt(clearance())+" mm clearance");
+  L.push("; Park    : X"+fmt(P.parkX)+" Y"+fmt(P.parkY)+", "+anchorName()+", "+fmt(clearance())+" mm inside the "+(lim().known ? "travel limits" : "bed edge"));
   L.push("; Motion  : Z lift "+P.zlift+" mm, park feed "+P.feed+" mm/min, dwell "+P.dwell+" ms");
   L.push("; Trigger : M117 "+P.token+" plus the layer number");
   L.push(";");
@@ -1024,6 +1085,101 @@ function assertBrackets(text){
   var stray = (text.replace(/\[layer_num\]/g,"").match(/[\[\]]/g) || []).length;
   return { ok: bad.length===0 && stray===0 && hits.length===1, bad: bad, stray: stray };
 }
+
+/* ---------------------------------------------------------------------------
+   Machine end G-code. Ends the print in exactly the pose of the timelapse
+   frames - same park point, same lift, bed left where the last layer ended -
+   and takes one final frame of the finished part. Built from the same profile
+   as the time lapse box so the two can never disagree.
+
+   The M117 line carries no inline comment on purpose: Klipper would strip it,
+   but the time lapse box keeps its M117 bare too, so both stay alike.
+--------------------------------------------------------------------------- */
+function buildEndGcode(){
+  var m = model(), sl = slicer(), C = CATALOG[P.mfr], e = m.end, L = [];
+  var line = "; ===========================================================================";
+  var live = e && e.verified;
+
+  L.push(line);
+  L.push("; PROCAM camera trigger - Machine end G-code");
+  L.push(";");
+  L.push("; Printer : " + C.name + " " + m.name + ", profile " + P.label);
+  L.push("; Slicer  : " + sl.name + ", Machine end G-code");
+  L.push("; Park    : X"+fmt(P.parkX)+" Y"+fmt(P.parkY)+", Z lift "+P.zlift+" mm - identical to the time lapse box");
+  L.push(";");
+  L.push("; Put this in place of the end block of Machine end G-code. It ends the");
+  L.push("; print in exactly the pose of the timelapse frames: same park point,");
+  L.push("; same lift, bed left where the last layer finished. One final frame is");
+  L.push("; taken of the finished part, then the pose is held.");
+  L.push(";");
+  if(e){
+    L.push("; max_z_position is set to 0 around END_PRINT only. That stops the stock");
+    L.push("; END_PRINT_Z_SAFE and END_PRINT_POINT macros from lifting and then");
+    L.push("; dropping the bed, and it is put back to " + e.maxZ.toFixed(1) + " straight after.");
+    if(live){
+      L.push("; Verified on this model: PRINTER_PARAM reports max_z_position " + e.maxZ.toFixed(1) + ".");
+    } else {
+      L.push(";");
+      L.push("; !! NOT VERIFIED on this model, so both SET_GCODE_VARIABLE lines below");
+      L.push("; !! are commented out and the bed will still drop. First open");
+      L.push("; !!   http://PRINTER-IP:7125/printer/objects/query?gcode_macro%20PRINTER_PARAM");
+      L.push("; !! and only if it lists max_z_position, remove the leading semicolon");
+      L.push("; !! from both lines and use the value it reports. If the macro does not");
+      L.push("; !! exist, those lines error out at the very end of every print.");
+    }
+    L.push(";");
+    L.push("; Not verified yet: the CFS commands inside END_PRINT, BOX_END and");
+    L.push("; BOX_END_PRINT. If the head moves after the final frame, that is them.");
+    L.push("; END_PRINT also ends with M84, so watch whether the bed sags afterwards.");
+  } else {
+    L.push("; This printer's own end sequence is not known here, so nothing below");
+    L.push("; stops it moving the bed afterwards. Keep your existing end G-code after");
+    L.push("; this block - the head parks and the final frame fires first.");
+  }
+  L.push(";");
+  L.push("; Pair it with a bare M117 as the first line of Machine start G-code, so a");
+  L.push("; manual test message can never swallow the next print's first frame.");
+  L.push(line);
+  L.push("");
+  if(sl.seq){
+    L.push("{if print_sequence == \"by object\"}");
+    L.push("G91");
+    L.push("G1 X2 Y2 Z1 F24000");
+    L.push("G90");
+    L.push("G1 Z{max_layer_z+2} F600");
+    L.push("{endif}");
+  } else {
+    L.push("; No sequential-printing guard for this slicer - print by layer only.");
+  }
+  L.push("G91");
+  L.push(pad33("G1 E-1 F2100") + "; small retract so the travel does not string");
+  L.push(pad33("G1 Z"+P.zlift+" F1200") + "; the same lift as every timelapse frame");
+  L.push("G90");
+  L.push(pad33("G1 X"+fmt(P.parkX)+" Y"+fmt(P.parkY)+" F"+P.feed) + "; the timelapse park point - " + anchorName());
+  L.push(pad33("M400") + "; wait until the head is really there");
+  L.push("M117 " + P.token + " END");
+  L.push("                                 ; final frame, of the finished part");
+  L.push(pad33("G4 P"+P.dwell) + "; hold still while the shutter fires");
+  if(e){
+    var off = live ? "" : "; ";
+    L.push(off + "SET_GCODE_VARIABLE MACRO=PRINTER_PARAM VARIABLE=max_z_position VALUE=0");
+    L.push("END_PRINT");
+    L.push(off + "SET_GCODE_VARIABLE MACRO=PRINTER_PARAM VARIABLE=max_z_position VALUE=" + e.maxZ.toFixed(1));
+  }
+  return L.join("\n");
+}
+
+function buildStartGcode(){
+  return [
+    "; PROCAM - clear the display message so a manual test message can never",
+    "; match this print's first timelapse trigger. Keep it as the first line.",
+    "M117"
+  ].join("\n");
+}
+
+/* End and start blocks carry no placeholders at all, so any square bracket
+   in them is a slicing failure waiting to happen. */
+function noBrackets(text){ return !/[\[\]]/.test(text); }
 
 function buildFirmware(){
   var still = P.dwell - FW_TRIGGER_DELAY_MS, L = [];
@@ -1099,6 +1255,23 @@ function renderTimingNotes(){
   $("timingNotes").innerHTML = out;
 }
 
+function renderEndNotes(){
+  var m = model(), sl = slicer(), e = m.end, out = "";
+  out += note("ok","✓","Parks at <b>X"+fmt(P.parkX)+" Y"+fmt(P.parkY)+"</b> with a <b>"+P.zlift+" mm</b> lift &mdash; the same as the time lapse box, so the print ends in the pose of its last frame, plus one final frame of the finished part.");
+  if(e && e.verified){
+    out += note("ok","✓","Stops Creality's <code>END_PRINT</code> from dropping the bed. Verified on this model: <code>max_z_position</code> reads "+e.maxZ.toFixed(1)+" on the printer.");
+    out += note("warn","!","Not verified yet: the CFS steps <code>BOX_END</code> / <code>BOX_END_PRINT</code> inside <code>END_PRINT</code>. Watch the first print &mdash; any head movement after the final frame is them. <code>M84</code> also turns the motors off at the end, so check the bed does not sag.");
+  } else if(e){
+    out += note("warn","!","The bed-drop override is generated <b>commented out</b> &mdash; <code>PRINTER_PARAM</code> has not been checked on this model. Query it first (the URL is in the block), then uncomment both lines. Until then the bed still drops at the end.");
+  } else {
+    out += note("warn","!","This printer's own end sequence may still move the bed after the final frame. Only Creality K-series <code>END_PRINT</code> is understood here.");
+  }
+  if(!sl.seq){
+    out += note("flat","i","No <i>by object</i> guard for "+esc(sl.name)+". Print by layer &mdash; the timelapse box is not safe for sequential printing anyway.");
+  }
+  $("endNotes").innerHTML = out;
+}
+
 function regenerate(){
   var g = buildGcode(), f = buildFirmware(), chk = assertBrackets(g);
   $("outGcode").innerHTML = hlGcode(g);
@@ -1112,6 +1285,13 @@ function regenerate(){
     $("gcodeSize").textContent = "BRACKET ERROR";
     $("gcodeSize").style.color = "var(--danger)";
   }
+  var en = buildEndGcode(), st = buildStartGcode();
+  $("outEnd").innerHTML = hlGcode(en);   $("outEnd").dataset.raw = en;
+  $("outStart").innerHTML = hlGcode(st); $("outStart").dataset.raw = st;
+  var endOk = noBrackets(en) && noBrackets(st);
+  $("endSize").textContent = endOk ? en.split("\n").length + " lines" : "BRACKET ERROR";
+  $("endSize").style.color = endOk ? "" : "var(--danger)";
+  renderEndNotes();
   renderTimingNotes();
 }
 
@@ -1322,6 +1502,8 @@ function copyBtn(btnId,preId){
 }
 copyBtn("btnCopyGcode","outGcode");
 copyBtn("btnCopyFw","outFw");
+copyBtn("btnCopyEnd","outEnd");
+copyBtn("btnCopyStart","outStart");
 
 $("btnConnect").addEventListener("click", checkLink);
 $("btnHome").addEventListener("click", function(){
