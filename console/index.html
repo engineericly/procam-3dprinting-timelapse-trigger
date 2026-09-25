@@ -514,6 +514,7 @@ footer.foot code{font-family:var(--f-mono)}
             <input type="number" id="margin" min="0" max="100" step="1">
             <span class="hint">Sets where the preset anchors sit, and how close to the edge counts as risky.</span>
           </div>
+          <div class="notes" id="parkNotes"></div>
         </div>
       </section>
 
@@ -928,6 +929,13 @@ function clearance(){
   var l = lim();
   return Math.min(P.parkX-l.x0, l.x1-P.parkX, P.parkY-l.y0, l.y1-P.parkY);
 }
+/* Distance to the printable bed, which is not the same thing as the travel
+   limits. Past the plate edge the nozzle can still be legal for Klipper while
+   meeting the bed carrier, a wiper or the chamber wall at low Z. */
+function bedClearance(){
+  return Math.min(P.parkX, P.bedX-P.parkX, P.parkY, P.bedY-P.parkY);
+}
+function offBed(){ return bedClearance() < 0; }
 function anchorName(){
   var fx = P.parkX/P.bedX, fy = P.parkY/P.bedY;
   var vert = fy>0.66 ? "back" : (fy<0.34 ? "front" : "mid");
@@ -952,16 +960,30 @@ function refreshReadout(){
   var c = clearance(), pill = $("safePill");
   $("roX").innerHTML = '<span class="k">X</span>'+fmt(P.parkX);
   $("roY").innerHTML = '<span class="k">Y</span>'+fmt(P.parkY);
-  $("roClear").textContent = fmt(c);
   $("roX").classList.remove("flash"); void $("roX").offsetWidth; $("roX").classList.add("flash");
   if(lim().known){
-    /* real axis limits: inside them the move cannot be refused, however close */
-    pill.className = "pill " + (c<0 ? "is-bad" : "is-ok");
-    $("safeTxt").textContent = c<0 ? "Outside travel limits" : "Inside travel limits";
+    var b = bedClearance();
+    if(c < 0){
+      pill.className = "pill is-bad"; $("safeTxt").textContent = "Outside travel limits";
+    } else if(c < 1){
+      pill.className = "pill is-bad"; $("safeTxt").textContent = "On the travel limit";
+    } else if(b < 0){
+      pill.className = "pill is-warn"; $("safeTxt").textContent = "Off the bed, " + fmt(c) + " mm of travel left";
+    } else {
+      /* On the bed with travel to spare. Bed-edge proximity is not an abort
+         risk once the real limits are known, so it does not warn here. */
+      pill.className = "pill is-ok"; $("safeTxt").textContent = "Inside travel limits";
+    }
+    $("roClear").textContent = fmt(b < 0 ? c : b);
+    renderParkNotes();
+    syncPad();
+    return;
   } else {
     pill.className = "pill " + (c<0 ? "is-bad" : (c<P.margin ? "is-warn" : "is-ok"));
     $("safeTxt").textContent = c<0 ? "Off the bed" : (c<P.margin ? fmt(c)+" mm from the edge" : "Inside safe area");
+    $("roClear").textContent = fmt(c);
   }
+  renderParkNotes();
   syncPad();
 }
 function anchors(){
@@ -1044,6 +1066,11 @@ function buildGcode(){
   L.push("; Profile : " + P.label);
   L.push("; Slicer  : " + sl.name + ", " + sl.path);
   L.push("; Park    : X"+fmt(P.parkX)+" Y"+fmt(P.parkY)+", "+anchorName()+", "+fmt(clearance())+" mm inside the "+(lim().known ? "travel limits" : "bed edge"));
+  if(offBed()){
+    L.push("; NOTE this park point is off the printable bed, inside the machine's");
+    L.push("; travel limits. Check the nozzle really clears the bed carrier, wiper");
+    L.push("; and chamber wall at first-layer height before running it unattended.");
+  }
   L.push("; Motion  : Z lift "+P.zlift+" mm, park feed "+P.feed+" mm/min, dwell "+P.dwell+" ms");
   L.push("; Trigger : M117 "+P.token+" plus the layer number");
   L.push(";");
@@ -1284,6 +1311,19 @@ function hlC(text){
 }
 function note(kind, ico, html){
   return '<div class="note '+kind+'"><span class="ico">'+ico+'</span><span>'+html+'</span></div>';
+}
+
+function renderParkNotes(){
+  var el = $("parkNotes"); if(!el) return;
+  var c = clearance(), b = bedClearance(), l = lim(), out = "";
+  if(c < 0){
+    out += note("bad","\u2715","X"+fmt(P.parkX)+" Y"+fmt(P.parkY)+" is outside this printer's travel limits. Klipper would refuse the move with \"Move out of range\", which aborts the whole print.");
+  } else if(c < 1){
+    out += note("bad","!","Exactly on the travel limit, with <b>"+fmt(c)+" mm</b> to spare. Legal, but any offset applied later tips it out of range and aborts the print mid-way. Move a few mm in.");
+  } else if(b < 0){
+    out += note("warn","!","<b>Off the bed</b> by "+fmt(-b)+" mm, with "+fmt(c)+" mm of travel left. Klipper allows it, but travel limits are not physical clearance &mdash; past the plate edge the nozzle can meet the bed carrier, a wiper or the chamber wall, and the park sits only "+P.zlift+" mm up at the first layer. Jog there at low Z before trusting it. Ooze will also land inside the machine rather than on the bed.");
+  }
+  el.innerHTML = out;
 }
 
 function renderTimingNotes(){
