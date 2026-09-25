@@ -34,9 +34,18 @@
  *      switch C  ------> GPIO3
  *
  * BUTTON
- *   tap        -> record start/stop, or take a photo in PHOTO mode
- *   hold 1.5 s -> switch VIDEO <-> PHOTO
- *   hold 6 s   -> reboot
+ *   BOOT tap    -> record start/stop
+ *   BOOT hold 6 s -> reboot
+ *   switch tap  -> photo (manual/test shot)
+ *   There is no VIDEO/PHOTO mode on the ESP32 side - an earlier version of
+ *   this header claimed a 1.5 s hold switched it, but that was never built.
+ *   Stills vs movie is set on the camera body.
+ *
+ * WEB UI (OC_USE_WEBUI)
+ *   http://procam.local/ - take a photo, start/stop recording, and pick which
+ *   printer to watch from a saved list (add/remove, stored in NVS). Switching
+ *   takes effect immediately, no reflash. MOONRAKER_HOST only seeds the list
+ *   on a board that has never been configured.
  *
  * Protocol notes, verified against alpha-fairy's ptpsonycodes.h:
  *   SDIOConnect            0x9201
@@ -75,6 +84,14 @@ struct Button {
   uint32_t lastChange, pressStart;
 };
 enum BtnEvent { BTN_NONE, BTN_TAP, BTN_LONG };
+
+// One saved printer. Stored as a raw blob in NVS, so keep it POD and keep the
+// field sizes stable - changing them invalidates what is already on the board.
+struct Printer {
+  char     name[24];
+  char     host[40];
+  uint16_t port;
+};
 
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -121,6 +138,20 @@ enum BtnEvent { BTN_NONE, BTN_TAP, BTN_LONG };
 #  define MOONRAKER_PORT 7125
 #endif
 #define TRIGGER_TOKEN  "PROCAM_TRIGGER"  // must match the Timelapse G-code box
+
+// --- web UI -----------------------------------------------------------------
+// A small page on the ESP32 for picking which printer to watch, so switching
+// machines no longer means editing secrets.h and reflashing. The list lives in
+// NVS and survives reboots and sketch uploads.
+//
+// This shares the C3's single core with the trigger path. The handlers are
+// deliberately tiny and only run when someone has the page open, but if you
+// ever suspect it of costing you a frame, set this to 0 and the server is not
+// compiled in at all - the printer then comes from MOONRAKER_HOST as before.
+#define OC_USE_WEBUI    1
+#define OC_WEB_PORT     80
+#define OC_MDNS_NAME    "procam"     // http://procam.local/
+#define OC_MAX_PRINTERS 6
 
 // --- buttons ----------------------------------------------------------------
 //   REC   : on-board BOOT button, GPIO9, active low (internal pull-up).
@@ -213,6 +244,11 @@ enum BtnEvent { BTN_NONE, BTN_TAP, BTN_LONG };
 #define OC_WIPE_NVS_ON_BOOT 0
 
 #include <nvs_flash.h>
+#include <Preferences.h>
+#if OC_USE_WEBUI
+  #include <WebServer.h>
+  #include <ESPmDNS.h>
+#endif
 
 // Includes that depend on the options above.
 #if OC_USE_OLED
@@ -258,6 +294,47 @@ static uint32_t   gLastActivity = 0;   // for the idle keepalive
 static volatile uint32_t gObjectAdded = 0;  // counts confirmed captures
 static uint32_t gFrames      = 0;           // shutter triggers this session
 static uint32_t gLastTrigger = 0;           // for the re-trigger lockout
+
+// ----------------------------------------------------------- printer store --
+// The saved printers and which one is live. MOONRAKER_HOST is only the seed for
+// a board that has never been configured; after that this list wins.
+static Printer     gPrinters[OC_MAX_PRINTERS];
+static uint8_t     gPrinterCount = 0;
+static uint8_t     gActive       = 0;
+static Preferences gPrefs;
+
+static const char* activeHost(){ return gPrinterCount ? gPrinters[gActive].host : MOONRAKER_HOST; }
+static uint16_t    activePort(){ return gPrinterCount ? gPrinters[gActive].port : (uint16_t)MOONRAKER_PORT; }
+static const char* activeName(){ return gPrinterCount ? gPrinters[gActive].name : "default"; }
+
+static void printersSave(){
+  gPrefs.begin("procam", false);
+  gPrefs.putBytes("printers", gPrinters, (size_t)gPrinterCount * sizeof(Printer));
+  gPrefs.putUChar("active", gActive);
+  gPrefs.end();
+}
+
+static void printersLoad(){
+  gPrefs.begin("procam", true);
+  size_t bytes = gPrefs.getBytesLength("printers");
+  if (bytes && bytes % sizeof(Printer) == 0 && bytes <= sizeof(gPrinters)) {
+    gPrefs.getBytes("printers", gPrinters, bytes);
+    gPrinterCount = (uint8_t)(bytes / sizeof(Printer));
+  }
+  gActive = gPrefs.getUChar("active", 0);
+  gPrefs.end();
+
+  if (!gPrinterCount) {                 // first boot: seed from the compiled-in host
+    memset(&gPrinters[0], 0, sizeof(Printer));
+    strncpy(gPrinters[0].name, "printer 1", sizeof(gPrinters[0].name) - 1);
+    strncpy(gPrinters[0].host, MOONRAKER_HOST, sizeof(gPrinters[0].host) - 1);
+    gPrinters[0].port = (uint16_t)MOONRAKER_PORT;
+    gPrinterCount = 1;
+    gActive = 0;
+    printersSave();
+  }
+  if (gActive >= gPrinterCount) gActive = 0;
+}
 
 enum State { ST_WIFI, ST_HANDSHAKE, ST_READY, ST_LOST };
 
@@ -730,7 +807,7 @@ static uint32_t gMoonrakerLastAttempt = 0;
 
 static bool fetchOneshotToken(String& tokenOut) {
   HTTPClient http;
-  String url = String("http://") + MOONRAKER_HOST + ":" + String(MOONRAKER_PORT)
+  String url = String("http://") + activeHost() + ":" + String(activePort())
              + "/access/oneshot_token";
   http.begin(url);
   http.setTimeout(3000);
@@ -866,12 +943,12 @@ static void connectMoonraker() {
   // automatically (it always sends a real Origin); we have to set it
   // ourselves since this library defaults to a placeholder instead. No
   // moonraker.conf change needed.
-  String origin = String("Origin: http://") + MOONRAKER_HOST + ":" + String(MOONRAKER_PORT);
+  String origin = String("Origin: http://") + activeHost() + ":" + String(activePort());
   wsClient.setExtraHeaders(origin.c_str());
 
   String path = String("/websocket?token=") + token;
-  Serial.printf("   connecting ws://%s:%d%s\n", MOONRAKER_HOST, MOONRAKER_PORT, path.c_str());
-  wsClient.begin(MOONRAKER_HOST, MOONRAKER_PORT, path);
+  Serial.printf("   connecting ws://%s:%u%s\n", activeHost(), activePort(), path.c_str());
+  wsClient.begin(activeHost(), activePort(), path);
   wsClient.onEvent(webSocketEvent);
   // The library ALWAYS auto-reconnects internally - there is no way to turn
   // this off, only to change the interval (default 500ms). Left alone, it
@@ -881,6 +958,172 @@ static void connectMoonraker() {
   // it stops fighting our own reconnect logic.
   wsClient.setReconnectInterval(MOONRAKER_RECONNECT_MS);
 }
+
+// ------------------------------------------------------ switching + web UI --
+// Point the Moonraker link at another saved printer. No reflash, no reboot:
+// drop the socket and let loop() reconnect on its next pass with a fresh token.
+static void dropMoonraker(){
+  wsClient.disconnect();
+  gMoonrakerConnected   = false;
+  gMoonrakerLastAttempt = 0;           // reconnect on the next loop pass
+  gDirty = true;
+}
+static void switchPrinter(uint8_t i){
+  if (i >= gPrinterCount || i == gActive) return;
+  gActive = i;
+  printersSave();
+  Serial.printf("switching to %s at %s:%u\n", activeName(), activeHost(), activePort());
+  setStatus(activeName(), 2000);
+  dropMoonraker();
+}
+
+#if OC_USE_WEBUI
+static WebServer gWeb(OC_WEB_PORT);
+
+static String htmlEsc(const char* in){
+  String o;
+  for (const char* c = in; *c; c++) {
+    if      (*c == '&') o += F("&amp;");
+    else if (*c == '<') o += F("&lt;");
+    else if (*c == '>') o += F("&gt;");
+    else if (*c == '"') o += F("&quot;");
+    else                o += *c;
+  }
+  return o;
+}
+static void redirectHome(){
+  gWeb.sendHeader("Location", "/");
+  gWeb.send(303, "text/plain", "");
+}
+
+// One page, plain forms, no JavaScript: nothing to load from the internet and
+// nothing that keeps running in the background competing with the trigger.
+static void handleRoot(){
+  String h;
+  h.reserve(3200);
+  h += F("<!doctype html><meta charset=utf-8>"
+         "<meta name=viewport content='width=device-width,initial-scale=1'>"
+         "<title>PROCAM</title><style>"
+         "body{font:15px system-ui,sans-serif;margin:0;padding:18px;background:#1a1718;color:#f2efec;max-width:560px}"
+         "h1{font-size:18px;margin:0 0 4px}h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#a9a1a3;margin:22px 0 8px}"
+         ".s{color:#a9a1a3;font-size:13px}.ok{color:#3db690}.no{color:#e85f54}"
+         "ul{list-style:none;padding:0;margin:0}"
+         "li{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #403a3b;border-radius:8px;margin-bottom:8px;background:#231f20}"
+         "li.on{border-color:#ffb600;background:#3b2c05}code{color:#a9a1a3;font-size:12px}"
+         ".r{margin-left:auto;display:flex;gap:6px}form{margin:0}"
+         "button,input{font:inherit;border-radius:6px;border:1px solid #403a3b}"
+         "button{background:#2c2728;color:#f2efec;padding:7px 12px;cursor:pointer}"
+         "button.p{background:#ffb600;border-color:#ffb600;color:#231f20;font-weight:600}"
+         "button.rec{background:#e85f54;border-color:#e85f54;color:#fff;font-weight:600}"
+         ".row{display:flex;gap:8px;flex-wrap:wrap}"
+         "form.add{display:grid;gap:8px;grid-template-columns:1fr 1fr 72px auto}"
+         "input{padding:7px 9px;background:#2c2728;color:#f2efec;min-width:0}"
+         "</style><h1>PROCAM trigger</h1><div class=s>");
+
+  h += gMoonrakerConnected ? F("<span class=ok>printer linked</span>") : F("<span class=no>printer not linked</span>");
+  h += F(" &middot; ");
+  h += (gState == ST_READY) ? F("<span class=ok>camera ready</span>") : F("<span class=no>camera not ready</span>");
+  h += F(" &middot; frames ");
+  h += String(gFrames);
+  h += F("</div>");
+
+  // --- camera -------------------------------------------------------------
+  h += F("<h2>Camera</h2><div class=row>"
+         "<form method=post action=/photo><button class=p>Take photo</button></form>"
+         "<form method=post action=/record><button class=");
+  h += gRecording ? F("rec>Stop recording") : F(">Start recording");
+  h += F("</button></form></div><p class=s>Stills or movie is set on the camera body. "
+         "In movie mode the shutter command is accepted but ignored.</p>");
+
+  // --- printers -----------------------------------------------------------
+  h += F("<h2>Printer to watch</h2><ul>");
+  for (uint8_t i = 0; i < gPrinterCount; i++) {
+    h += (i == gActive) ? F("<li class=on>") : F("<li>");
+    h += F("<div><b>");  h += htmlEsc(gPrinters[i].name);
+    h += F("</b><br><code>"); h += htmlEsc(gPrinters[i].host);
+    h += ':'; h += String(gPrinters[i].port); h += F("</code></div><div class=r>");
+    if (i != gActive) {
+      h += F("<form method=post action=/select><input type=hidden name=i value=");
+      h += String(i); h += F("><button class=p>Watch</button></form>");
+    }
+    if (gPrinterCount > 1) {
+      h += F("<form method=post action=/del><input type=hidden name=i value=");
+      h += String(i); h += F("><button>Remove</button></form>");
+    }
+    h += F("</div></li>");
+  }
+  h += F("</ul>");
+  if (gPrinterCount < OC_MAX_PRINTERS) {
+    h += F("<form class=add method=post action=/add>"
+           "<input name=name placeholder=Name maxlength=23>"
+           "<input name=host placeholder=192.168.1.50 maxlength=39 required>"
+           "<input name=port value=7125 maxlength=5>"
+           "<button class=p>Add</button></form>");
+  }
+  gWeb.send(200, "text/html; charset=utf-8", h);
+}
+
+static void handleSelect(){
+  if (gWeb.hasArg("i")) switchPrinter((uint8_t)gWeb.arg("i").toInt());
+  redirectHome();
+}
+static void handleAdd(){
+  String host = gWeb.arg("host"); host.trim();
+  if (host.length() && gPrinterCount < OC_MAX_PRINTERS) {
+    Printer& p = gPrinters[gPrinterCount];
+    memset(&p, 0, sizeof(p));
+    String name = gWeb.arg("name"); name.trim();
+    if (!name.length()) name = host;
+    strncpy(p.name, name.c_str(), sizeof(p.name) - 1);
+    strncpy(p.host, host.c_str(), sizeof(p.host) - 1);
+    long port = gWeb.arg("port").toInt();
+    p.port = (port > 0 && port < 65536) ? (uint16_t)port : 7125;
+    gPrinterCount++;
+    printersSave();
+    Serial.printf("added printer %s at %s:%u\n", p.name, p.host, p.port);
+  }
+  redirectHome();
+}
+static void handleDel(){
+  if (gWeb.hasArg("i") && gPrinterCount > 1) {
+    uint8_t i = (uint8_t)gWeb.arg("i").toInt();
+    if (i < gPrinterCount) {
+      bool wasActive = (i == gActive);
+      for (uint8_t k = i; k + 1 < gPrinterCount; k++) gPrinters[k] = gPrinters[k + 1];
+      gPrinterCount--;
+      if (wasActive)      gActive = 0;
+      else if (gActive > i) gActive--;
+      printersSave();
+      if (wasActive) dropMoonraker();     // it was watching the one just removed
+    }
+  }
+  redirectHome();
+}
+static void handlePhoto(){
+  // Same entry point as the switch and Moonraker, so the lockout and the
+  // camera-ready check apply here too.
+  triggerPhoto("web", 0);
+  redirectHome();
+}
+static void handleRecord(){
+  if (gState == ST_READY) doRecordToggle();
+  else setStatus("no camera");
+  redirectHome();
+}
+
+static void startWebUi(){
+  if (MDNS.begin(OC_MDNS_NAME)) MDNS.addService("http", "tcp", OC_WEB_PORT);
+  gWeb.on("/",       HTTP_GET,  handleRoot);
+  gWeb.on("/select", HTTP_POST, handleSelect);
+  gWeb.on("/add",    HTTP_POST, handleAdd);
+  gWeb.on("/del",    HTTP_POST, handleDel);
+  gWeb.on("/photo",  HTTP_POST, handlePhoto);
+  gWeb.on("/record", HTTP_POST, handleRecord);
+  gWeb.begin();
+  Serial.printf("web UI: http://%s.local/  or  http://%s/\n",
+                OC_MDNS_NAME, WiFi.localIP().toString().c_str());
+}
+#endif
 
 // ----------------------------------------------------------------- setup ---
 static bool joinWifi() {
@@ -941,11 +1184,19 @@ void setup() {
   Serial.println("NOTE: PROCAM must be in STILLS mode for photo capture -");
   Serial.println("      in movie mode the shutter commands are accepted but ignored.");
 
-  if (strcmp(MOONRAKER_HOST, "192.168.1.xxx") == 0) {
-    Serial.println("!! MOONRAKER_HOST is still the placeholder - set it to your printer's IP");
+  printersLoad();
+  Serial.printf("watching printer: %s at %s:%u (%u saved)\n",
+                activeName(), activeHost(), activePort(), gPrinterCount);
+  // The old check compared against "192.168.1.xxx", which was never the actual
+  // default, so it could not fire. Compare against the real placeholder.
+  if (strcmp(activeHost(), "192.168.1.50") == 0) {
+    Serial.println("!! printer address is still the placeholder - set it in secrets.h or on the web UI");
   }
 
   if (joinWifi()) {
+#if OC_USE_WEBUI
+    startWebUi();
+#endif
     connectMoonraker();
     gMoonrakerLastAttempt = millis();
     IPAddress cam;
@@ -955,6 +1206,9 @@ void setup() {
 }
 
 void loop() {
+#if OC_USE_WEBUI
+  gWeb.handleClient();
+#endif
   serviceButtons();
   pumpEvents();
   wsClient.loop();
