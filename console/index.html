@@ -259,6 +259,7 @@ input.is-bad{border-color:var(--danger)}
 .note code{font-family:var(--f-mono);font-size:12px}
 .notes{display:flex;flex-direction:column;gap:8px}
 .endnotes{padding:12px 16px;border-top:1px solid var(--line-soft)}
+.outputs .wide{grid-column:1/-1}
 
 /* ---------- code output ---------- */
 .codewrap{position:relative;border-top:1px solid var(--line-soft)}
@@ -585,7 +586,7 @@ footer.foot code{font-family:var(--f-mono)}
       <div class="codewrap"><pre class="code" id="outEnd"></pre></div>
     </section>
 
-    <section class="panel">
+    <section class="panel wide">
       <header>
         <h2>Machine start G-code</h2>
         <div class="copybar">
@@ -596,16 +597,6 @@ footer.foot code{font-family:var(--f-mono)}
       <div class="codewrap"><pre class="code" id="outStart"></pre></div>
     </section>
 
-    <section class="panel">
-      <header>
-        <h2>Firmware constants</h2>
-        <div class="copybar">
-          <span class="eyebrow">procam_remote_trigger_moonraker.ino</span>
-          <button class="btn tiny" id="btnCopyFw">Copy</button>
-        </div>
-      </header>
-      <div class="codewrap"><pre class="code" id="outFw"></pre></div>
-    </section>
   </div>
 
   <footer class="foot">
@@ -721,10 +712,10 @@ var CATALOG = {
   }}
 };
 
-/* Firmware constants, read from procam_remote_trigger_moonraker.ino */
+/* Firmware timing, read from procam_remote_trigger_moonraker.ino. Used only to
+   explain the dwell and the re-trigger lockout; nothing here is generated. */
 var FW_TRIGGER_DELAY_MS = 100;   /* OC_MOONRAKER_TRIGGER_DELAY_MS */
 var FW_LOCKOUT_MS       = 1500;  /* OC_RETRIGGER_LOCKOUT_MS */
-var FW_TOKEN_LINE       = 104;
 
 var PAD = 26; /* svg breathing room around the bed, in bed millimetres */
 
@@ -1263,30 +1254,6 @@ function buildStartGcode(){
    in them is a slicing failure waiting to happen. */
 function noBrackets(text){ return !/[\[\]]/.test(text); }
 
-function buildFirmware(){
-  var still = P.dwell - FW_TRIGGER_DELAY_MS, L = [];
-  L.push("// PROCAM Trigger Console - firmware constants");
-  L.push("// Profile: " + P.label);
-  L.push("// File: procam_remote_trigger_moonraker.ino");
-  L.push("//");
-  L.push("// Only TRIGGER_TOKEN has to agree with the G-code box. The two timing");
-  L.push("// values below are the firmware's own and are shown for reference.");
-  L.push("");
-  L.push('#define TRIGGER_TOKEN  "'+P.token+'"'+"   // line "+FW_TOKEN_LINE+" - must equal the M117 token");
-  L.push("");
-  L.push("// Already in the firmware. Change only with a reason:");
-  L.push("#define OC_MOONRAKER_TRIGGER_DELAY_MS "+FW_TRIGGER_DELAY_MS+"    // wait after the message before firing");
-  L.push("#define OC_RETRIGGER_LOCKOUT_MS       "+FW_LOCKOUT_MS+"   // ignore repeat triggers inside this window");
-  L.push("");
-  L.push("/* With this profile's settings:");
-  L.push(" *   dwell "+P.dwell+" ms - the head holds still this long after M117");
-  L.push(" *   shutter fires about "+FW_TRIGGER_DELAY_MS+" ms in, leaving "+still+" ms of stillness after it");
-  L.push(" *   layers finishing in under "+FW_LOCKOUT_MS+" ms will not fire a second shot");
-  if(P.host) L.push(" *   this printer's Moonraker: " + P.host);
-  L.push(" */");
-  return L.join("\n");
-}
-
 /* ---------- syntax colouring ---------- */
 function hlGcode(text){
   return esc(text).split("\n").map(function(l){
@@ -1297,16 +1264,6 @@ function hlGcode(text){
     var cmt  = ci>=0 ? '<span class="c">'+rest.slice(ci)+'</span>' : "";
     code = code.replace(/\[layer_num\]/g,'<span class="ph">[layer_num]</span>');
     return '<span class="cmd">'+m[1]+'</span>'+code+cmt;
-  }).join("\n");
-}
-function hlC(text){
-  return esc(text).split("\n").map(function(l){
-    if(/^\s*(\/\/|\*|\/\*)/.test(l)) return '<span class="c">'+l+'</span>';
-    var m = l.match(/^(#define)(\s+\S+)(.*)$/); if(!m) return l;
-    var rest = m[3], ci = rest.indexOf("//");
-    var code = ci>=0 ? rest.slice(0,ci) : rest;
-    var cmt  = ci>=0 ? '<span class="c">'+rest.slice(ci)+'</span>' : "";
-    return '<span class="cmd">'+m[1]+'</span><span class="ph">'+m[2]+'</span>'+code+cmt;
   }).join("\n");
 }
 function note(kind, ico, html){
@@ -1345,7 +1302,7 @@ function renderTimingNotes(){
     out += note("warn","!","The nozzle oozes during the dwell, and where it lands depends on your slicer. Check a sliced file: the prime tower must come <b>before</b> the head returns to the model. On a Snapmaker U1 it went straight back to the object and the ooze landed on the print &mdash; that is what forced a purge pad. Enable the prime tower if you have not.");
   }
   if(P.token !== "PROCAM_TRIGGER"){
-    out += note("warn","!","Token changed. Update <code>TRIGGER_TOKEN</code> on line "+FW_TOKEN_LINE+" of the firmware and reflash, or the ESP32 will never fire.");
+    out += note("warn","!","Token changed. Update <code>#define TRIGGER_TOKEN</code> in the firmware to match and reflash, or the ESP32 will never fire.");
   }
   $("timingNotes").innerHTML = out;
 }
@@ -1371,11 +1328,9 @@ function renderEndNotes(){
 }
 
 function regenerate(){
-  var g = buildGcode(), f = buildFirmware(), chk = assertBrackets(g);
+  var g = buildGcode(), chk = assertBrackets(g);
   $("outGcode").innerHTML = hlGcode(g);
-  $("outFw").innerHTML = hlC(f);
   $("outGcode").dataset.raw = g;
-  $("outFw").dataset.raw = f;
   if(chk.ok){
     $("gcodeSize").textContent = g.split("\n").length + " lines";
     $("gcodeSize").style.color = "";
@@ -1599,7 +1554,6 @@ function copyBtn(btnId,preId){
   });
 }
 copyBtn("btnCopyGcode","outGcode");
-copyBtn("btnCopyFw","outFw");
 copyBtn("btnCopyEnd","outEnd");
 copyBtn("btnCopyStart","outStart");
 
