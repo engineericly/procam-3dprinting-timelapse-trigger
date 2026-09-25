@@ -662,20 +662,35 @@ var SLICERS = {
    inside them is safe even past the bed edge. K2 Pro values read from
    Moonraker on the real machine.
 
-   end = Creality's END_PRINT lifts, then drops the bed to half height, driven by
-   PRINTER_PARAM.max_z_position. Setting it to 0 around END_PRINT stops that so
-   the print ends in the pose of the last timelapse frame. Only the K2 Pro has
-   been checked live; on the others the lines are generated commented out,
-   because a missing PRINTER_PARAM would error at the end of the print.
+   end = what this printer's stock END_PRINT does to the toolhead, which decides
+   whether the print can finish in the pose of the last timelapse frame.
+
+     style "k2"    - K2 Pro shape: END_PRINT_Z_SAFE lifts, END_PRINT_POINT drops
+                     the bed to half height, both gated on
+                     PRINTER_PARAM.max_z_position. Zeroing it around END_PRINT
+                     skips both. Confirmed live on the K2 Pro only; elsewhere the
+                     lines are generated commented out.
+     style "stock" - the macro moves the head no matter what, so the pose cannot
+                     be held. Its measured lift and park point are recorded here
+                     and written into the generated block.
+
+   The K2 trick is NOT transferable just because PRINTER_PARAM exists. The
+   SparkX i7 has that variable too, but its END_PRINT_POINT reads
+   "max_z_position + 1" as a ceiling and always moves Z, so zeroing it would
+   drive the bed to Z1 and crash the nozzle into the print. Always read the
+   macro body, not just the variable list, before adding style "k2".
 --------------------------------------------------------------------------- */
 var CATALOG = {
   creality:{ name:"Creality", slicer:"crealityprint", models:{
     k2pro   :{ name:"K2 Pro",        x:300, y:300, z:300, mr:"stock", verified:true,
-               travel:{ x:[-8.9,302], y:[-6.5,302] }, end:{ maxZ:300, verified:true } },
-    k2plus  :{ name:"K2 Plus",       x:350, y:350, z:350, mr:"stock", end:{ maxZ:350 } },
-    k1max   :{ name:"K1 Max",        x:300, y:300, z:300, mr:"stock", end:{ maxZ:300 } },
-    k1c     :{ name:"K1C",           x:220, y:220, z:250, mr:"stock", end:{ maxZ:250 } },
-    k1      :{ name:"K1",            x:220, y:220, z:250, mr:"stock", end:{ maxZ:250 } },
+               travel:{ x:[-8.9,302], y:[-6.5,302] }, end:{ style:"k2", maxZ:300, verified:true } },
+    k2plus  :{ name:"K2 Plus",       x:350, y:350, z:350, mr:"stock", end:{ style:"k2", maxZ:350 } },
+    k1max   :{ name:"K1 Max",        x:300, y:300, z:300, mr:"stock", end:{ style:"k2", maxZ:300 } },
+    k1c     :{ name:"K1C",           x:220, y:220, z:250, mr:"stock", end:{ style:"k2", maxZ:250 } },
+    k1      :{ name:"K1",            x:220, y:220, z:250, mr:"stock", end:{ style:"k2", maxZ:250 } },
+    sparkxi7:{ name:"SparkX i7",     x:260, y:260, z:255, mr:"stock",
+               travel:{ x:[-16,279], y:[-7,280] },
+               end:{ style:"stock", lift:50, parkX:267, parkY:199 } },
     e3v3ke  :{ name:"Ender-3 V3 KE", x:220, y:220, z:240, mr:"stock" }
   }},
   anycubic:{ name:"Anycubic", slicer:"anycubic", models:{
@@ -1098,7 +1113,8 @@ function assertBrackets(text){
 function buildEndGcode(){
   var m = model(), sl = slicer(), C = CATALOG[P.mfr], e = m.end, L = [];
   var line = "; ===========================================================================";
-  var live = e && e.verified;
+  var k2 = e && e.style === "k2";
+  var live = k2 && e.verified;
 
   L.push(line);
   L.push("; PROCAM camera trigger - Machine end G-code");
@@ -1107,12 +1123,30 @@ function buildEndGcode(){
   L.push("; Slicer  : " + sl.name + ", Machine end G-code");
   L.push("; Park    : X"+fmt(P.parkX)+" Y"+fmt(P.parkY)+", Z lift "+P.zlift+" mm - identical to the time lapse box");
   L.push(";");
-  L.push("; Put this in place of the end block of Machine end G-code. It ends the");
-  L.push("; print in exactly the pose of the timelapse frames: same park point,");
-  L.push("; same lift, bed left where the last layer finished. One final frame is");
-  L.push("; taken of the finished part, then the pose is held.");
+  L.push("; Put this in place of the end block of Machine end G-code. The head parks");
+  L.push("; at the timelapse point and one final frame is taken of the finished part.");
+  if(live){
+    L.push("; The print then ends in exactly the pose of those frames: same park point,");
+    L.push("; same lift, bed left where the last layer finished, and it holds there.");
+  } else {
+    L.push("; Whether the printer then holds that pose depends on its own end macro,");
+    L.push("; which is covered below.");
+  }
   L.push(";");
-  if(e){
+  if(e && e.style === "stock"){
+    L.push("; This printer's stock END_PRINT cannot be talked out of moving. Read from");
+    L.push("; its own config: END_PRINT_POINT always raises Z by " + e.lift + " mm, capped at");
+    L.push("; max_z_position + 1, then parks at X" + e.parkX + " Y" + e.parkY + ". So the head does");
+    L.push("; not stay at the timelapse point and the bed does move afterwards.");
+    L.push(";");
+    L.push("; The final frame below is still taken at the park point, before END_PRINT");
+    L.push("; runs, so the video still ends on the finished part - the printer just");
+    L.push("; does not hold that pose.");
+    L.push(";");
+    L.push("; !! Do not copy the K2 Pro trick onto this printer. Zeroing");
+    L.push("; !! max_z_position here makes the ceiling 1 mm, and the macro would");
+    L.push("; !! drive Z to 1 and push the nozzle into the finished print.");
+  } else if(e){
     L.push("; max_z_position is set to 0 around END_PRINT only. That stops the stock");
     L.push("; END_PRINT_Z_SAFE and END_PRINT_POINT macros from lifting and then");
     L.push("; dropping the bed, and it is put back to " + e.maxZ.toFixed(1) + " straight after.");
@@ -1121,11 +1155,13 @@ function buildEndGcode(){
     } else {
       L.push(";");
       L.push("; !! NOT VERIFIED on this model, so both SET_GCODE_VARIABLE lines below");
-      L.push("; !! are commented out and the bed will still drop. First open");
-      L.push("; !!   http://PRINTER-IP:7125/printer/objects/query?gcode_macro%20PRINTER_PARAM");
-      L.push("; !! and only if it lists max_z_position, remove the leading semicolon");
-      L.push("; !! from both lines and use the value it reports. If the macro does not");
-      L.push("; !! exist, those lines error out at the very end of every print.");
+      L.push("; !! are commented out and the bed will still drop. Read the macro body");
+      L.push("; !! before touching them:");
+      L.push("; !!   http://PRINTER-IP:7125/printer/objects/query?configfile=config");
+      L.push("; !! and find gcode_macro END_PRINT_POINT. Only uncomment if its Z move");
+      L.push("; !! is skipped when max_z_position is 0. It is not enough that the");
+      L.push("; !! variable exists: on a SparkX i7 it exists but is used as a ceiling,");
+      L.push("; !! so zeroing it drives the bed into the print instead.");
     }
     L.push(";");
     L.push("; Not verified yet: the CFS commands inside END_PRINT, BOX_END and");
@@ -1160,11 +1196,13 @@ function buildEndGcode(){
   L.push("M117 " + P.token + " END");
   L.push("                                 ; final frame, of the finished part");
   L.push(pad33("G4 P"+P.dwell) + "; hold still while the shutter fires");
-  if(e){
+  if(k2){
     var off = live ? "" : "; ";
     L.push(off + "SET_GCODE_VARIABLE MACRO=PRINTER_PARAM VARIABLE=max_z_position VALUE=0");
     L.push("END_PRINT");
     L.push(off + "SET_GCODE_VARIABLE MACRO=PRINTER_PARAM VARIABLE=max_z_position VALUE=" + e.maxZ.toFixed(1));
+  } else if(e){
+    L.push("END_PRINT");
   }
   return L.join("\n");
 }
@@ -1258,7 +1296,10 @@ function renderTimingNotes(){
 function renderEndNotes(){
   var m = model(), sl = slicer(), e = m.end, out = "";
   out += note("ok","✓","Parks at <b>X"+fmt(P.parkX)+" Y"+fmt(P.parkY)+"</b> with a <b>"+P.zlift+" mm</b> lift &mdash; the same as the time lapse box, so the print ends in the pose of its last frame, plus one final frame of the finished part.");
-  if(e && e.verified){
+  if(e && e.style === "stock"){
+    out += note("warn","!","This printer's stock <code>END_PRINT</code> always raises Z by <b>"+e.lift+" mm</b> and parks at <b>X"+e.parkX+" Y"+e.parkY+"</b>, read from its own config. The final frame is taken at the park point first, so the video still ends on the finished part &mdash; but the printer does not hold that pose afterwards.");
+    out += note("bad","\u2715","Do not reuse the K2 Pro bed-drop trick here. <code>max_z_position</code> is a ceiling on this macro, so zeroing it would drive the bed to Z1 and push the nozzle into the print. The console never generates it for this model.");
+  } else if(e && e.verified){
     out += note("ok","✓","Stops Creality's <code>END_PRINT</code> from dropping the bed. Verified on this model: <code>max_z_position</code> reads "+e.maxZ.toFixed(1)+" on the printer.");
     out += note("warn","!","Not verified yet: the CFS steps <code>BOX_END</code> / <code>BOX_END_PRINT</code> inside <code>END_PRINT</code>. Watch the first print &mdash; any head movement after the final frame is them. <code>M84</code> also turns the motors off at the end, so check the bed does not sag.");
   } else if(e){
