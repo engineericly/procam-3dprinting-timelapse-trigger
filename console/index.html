@@ -657,6 +657,9 @@ var SLICERS = {
    against a real machine in this project - treat the rest as a starting point
    and jog-test the park point before trusting it.
 
+   host = the Moonraker address of that machine on this network, used to
+   prefill a new profile. Private LAN addresses only; editable per profile.
+
    travel = the printer's real axis limits (Klipper axis_minimum/maximum), where
    known. They are what "Move out of range" is checked against, so a park point
    inside them is safe even past the bed edge. K2 Pro values read from
@@ -683,14 +686,17 @@ var SLICERS = {
 var CATALOG = {
   creality:{ name:"Creality", slicer:"crealityprint", models:{
     k2pro   :{ name:"K2 Pro",        x:300, y:300, z:300, mr:"stock", verified:true,
-               travel:{ x:[-8.9,302], y:[-6.5,302] }, end:{ style:"k2", maxZ:300, verified:true } },
-    k2plus  :{ name:"K2 Plus",       x:350, y:350, z:350, mr:"stock", end:{ style:"k2", maxZ:350 } },
+               travel:{ x:[-8.9,302], y:[-6.5,302] }, end:{ style:"k2", maxZ:300, verified:true },
+               host:"192.168.100.199:7125" },
+    k2plus  :{ name:"K2 Plus",       x:350, y:350, z:350, mr:"stock", end:{ style:"k2", maxZ:350 },
+               host:"192.168.100.254:7125" },
     k1max   :{ name:"K1 Max",        x:300, y:300, z:300, mr:"stock", end:{ style:"k2", maxZ:300 } },
     k1c     :{ name:"K1C",           x:220, y:220, z:250, mr:"stock", end:{ style:"k2", maxZ:250 } },
     k1      :{ name:"K1",            x:220, y:220, z:250, mr:"stock", end:{ style:"k2", maxZ:250 } },
     sparkxi7:{ name:"SparkX i7",     x:260, y:260, z:255, mr:"stock",
                travel:{ x:[-16,279], y:[-7,280] },
-               end:{ style:"stock", lift:50, parkX:267, parkY:199 } },
+               end:{ style:"stock", lift:50, parkX:267, parkY:199 },
+               host:"192.168.100.30:7125" },
     e3v3ke  :{ name:"Ender-3 V3 KE", x:220, y:220, z:240, mr:"stock" }
   }},
   anycubic:{ name:"Anycubic", slicer:"anycubic", models:{
@@ -728,7 +734,7 @@ function defaults(mfr, model, label){
     label: label || (CATALOG[mfr].name + " " + m.name),
     mfr: mfr, model: model,
     bedX: m.x, bedY: m.y, bedZ: m.z,
-    host: "",
+    host: m.host || "",
     parkX: Math.round(m.x/2), parkY: m.y - 10,
     margin: 10, zlift: 2, feed: 18000, dwell: 1200, restore: 300,
     token: "PROCAM_TRIGGER"
@@ -751,19 +757,30 @@ function slicer(){ return SLICERS[CATALOG[P.mfr].slicer]; }
 
 /* ---------- persistence ---------- */
 function save(){
-  try{ localStorage.setItem("procam.console.v2", JSON.stringify(DB)); }catch(e){}
+  try{ localStorage.setItem("procam.console.v3", JSON.stringify(DB)); }catch(e){}
 }
 function load(){
   try{
-    var raw = localStorage.getItem("procam.console.v2");
+    var raw = localStorage.getItem("procam.console.v3");
     if(raw){
       var o = JSON.parse(raw);
       if(o && o.profiles && o.profiles.length){ DB = o; return; }
     }
   }catch(e){}
-  var seed = defaults("creality","k2pro","K2 Pro");
-  seed.parkX = 0; seed.parkY = 300;
-  DB = { profiles:[seed], activeId: seed.id };
+  /* The three machines on this network. Park points are back-left corners:
+     inside measured travel limits where those are known, otherwise one edge
+     margin in from the bed, which is the conservative guess. */
+  var mk = function(model, label, px, py){
+    var pr = defaults("creality", model, label);
+    pr.parkX = px; pr.parkY = py;
+    return pr;
+  };
+  var seeds = [
+    mk("k2pro",    "K2 Pro",    0, 300),
+    mk("k2plus",   "K2 Plus",  10, 340),
+    mk("sparkxi7", "SparkX i7", 0, 260)
+  ];
+  DB = { profiles: seeds, activeId: seeds[0].id };
 }
 function activate(id){
   var found = DB.profiles.filter(function(p){ return p.id===id; })[0];
