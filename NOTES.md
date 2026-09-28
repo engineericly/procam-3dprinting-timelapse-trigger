@@ -74,11 +74,11 @@ CLI="/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/
 ```
 
 - ESP32 core 3.3.11, libraries **WebSockets** (Links2004) and **U8g2**.
-- The sketch folder must be named after the `.ino`, and `secrets.h` must sit in
-  it. The IDE offers to move a misnamed sketch into a new folder but does **not**
-  move `secrets.h` - the build still succeeds, with placeholder WiFi, and the
-  board then never joins the network.
-- The last build was 1,348,451 bytes: 68% of the 1.9 MB OTA app slot. The
+- The sketch is `firmware/firmware.ino` because the Arduino IDE requires the
+  `.ino` to match its folder name. Do not rename either one: on a mismatch the IDE
+  offers to move the `.ino` into a new folder, leaves `secrets.h` behind, and the
+  build then succeeds with placeholder WiFi, so the board never joins the network.
+- The last build was 1,323,413 bytes: 67% of the 1.9 MB OTA app slot. The
   default partition layout (1.25 MB) is too small, and "Huge APP" has no OTA slot.
 - Apple Silicon needs Rosetta 2 for the IDE's bundled `ctags`, or the build dies
   with "bad CPU type in executable":

@@ -23,7 +23,7 @@
 ; printer (confirmed - it ran with no error), since Fluidd/Mainsail's own
 ; status bar depends on it. The ESP32 firmware subscribes to that
 ; display_status.message field over Moonraker's websocket instead of
-; scanning gcode responses - see procam_remote_trigger_moonraker.ino.
+; scanning gcode responses - see firmware/firmware.ino.
 ;
 ; The layer_num placeholder on the end of the M117 line isn't decorative -
 ; it makes each layer's message text different from the last (Klipper
