@@ -47,6 +47,10 @@
  *   takes effect immediately, no reflash. MOONRAKER_HOST only seeds the list
  *   on a board that has never been configured. The camera address is set the
  *   same way; CAM_IP_STR is its default and "Reset to default" returns to it.
+ *   Every printer can be removed, the last one included; MOONRAKER_HOST only
+ *   seeds a board that has never been configured. Settings can be downloaded
+ *   as a text backup and restored on the same page. They also survive OTA and
+ *   normal USB uploads, since neither touches NVS.
  *   Anything wrong - printer offline, camera not answering or still holding an
  *   old session, a bad camera address - is explained on the page with what to
  *   do, and shown as a short code on the OLED's bottom line.
@@ -97,7 +101,7 @@ enum BtnEvent { BTN_NONE, BTN_TAP, BTN_LONG };
 // What is currently wrong, for the web page and the OLED. Declared up here for
 // the same prototype-injection reason as Button above.
 enum CamErr { CE_NONE, CE_BADIP, CE_NOTFOUND, CE_NOANSWER, CE_BUSY, CE_REFUSED, CE_LOST };
-enum MrErr  { MR_NONE, MR_OFFLINE, MR_TOKEN, MR_NOWS };
+enum MrErr  { MR_NONE, MR_OFFLINE, MR_TOKEN, MR_NOWS, MR_NOPRINTER };
 
 // One saved printer. Stored as a raw blob in NVS, so keep it POD and keep the
 // field sizes stable - changing them invalidates what is already on the board.
@@ -370,18 +374,37 @@ static const char* mrErrShort(){
     case MR_OFFLINE: return "PRN OFFLINE";
     case MR_TOKEN:   return "PRN NO TOKEN";
     case MR_NOWS:    return "PRN NO LINK";
+    case MR_NOPRINTER: return "NO PRINTER";
     default:         return "";
   }
 }
 
-static const char* activeHost(){ return gPrinterCount ? gPrinters[gActive].host : MOONRAKER_HOST; }
-static uint16_t    activePort(){ return gPrinterCount ? gPrinters[gActive].port : (uint16_t)MOONRAKER_PORT; }
-static const char* activeName(){ return gPrinterCount ? gPrinters[gActive].name : "default"; }
+// With an empty list there is no printer to watch - the compiled-in host is
+// only ever used to seed the very first boot, never as a silent fallback.
+static const char* activeHost(){ return gPrinterCount ? gPrinters[gActive].host : ""; }
+static uint16_t    activePort(){ return gPrinterCount ? gPrinters[gActive].port : 0; }
+static const char* activeName(){ return gPrinterCount ? gPrinters[gActive].name : "none"; }
+
+// Printers are addressed by IPv4 only. A hostname would need a DNS lookup,
+// which blocks this single-core loop with no timeout of its own.
+static bool validIPv4(const String& s){
+  IPAddress ip;
+  return s.length() && s.indexOf(':') < 0 && s.indexOf('.') > 0 && ip.fromString(s);
+}
+// '|' separates fields in the backup file, so it cannot appear in a name.
+static String cleanName(String n){
+  String o;
+  for (size_t i = 0; i < n.length(); i++) { char c = n[i]; if (c >= 32 && c != '|') o += c; }
+  o.trim();
+  return o;
+}
 
 static void printersSave(){
   gPrefs.begin("procam", false);
-  gPrefs.putBytes("printers", gPrinters, (size_t)gPrinterCount * sizeof(Printer));
+  if (gPrinterCount) gPrefs.putBytes("printers", gPrinters, (size_t)gPrinterCount * sizeof(Printer));
+  else               gPrefs.remove("printers");
   gPrefs.putUChar("active", gActive);
+  gPrefs.putBool("seeded", true);     // an emptied list stays empty across reboots
   gPrefs.end();
 }
 
@@ -393,9 +416,14 @@ static void printersLoad(){
     gPrinterCount = (uint8_t)(bytes / sizeof(Printer));
   }
   gActive = gPrefs.getUChar("active", 0);
+  bool seeded = gPrefs.getBool("seeded", false);
   gPrefs.end();
 
-  if (!gPrinterCount) {                 // first boot: seed from the compiled-in host
+  if (gPrinterCount && !seeded) {       // boards from before the "seeded" flag
+    gPrefs.begin("procam", false); gPrefs.putBool("seeded", true); gPrefs.end();
+    seeded = true;
+  }
+  if (!gPrinterCount && !seeded) {      // first boot ever: seed from the compiled-in host
     memset(&gPrinters[0], 0, sizeof(Printer));
     strncpy(gPrinters[0].name, "printer 1", sizeof(gPrinters[0].name) - 1);
     strncpy(gPrinters[0].host, MOONRAKER_HOST, sizeof(gPrinters[0].host) - 1);
@@ -1030,6 +1058,11 @@ static void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
 // call gets its own new token, so a stale in-flight attempt is simply
 // superseded rather than reused.
 static void connectMoonraker() {
+  if (!gPrinterCount) {                 // user removed every printer
+    if (gMrErr != MR_NOPRINTER) { gMrErr = MR_NOPRINTER; gDirty = true; }
+    gPrinterReachable = true;
+    return;
+  }
   // Cheap reachability probe first. Without it an offline printer cost a
   // multi-second blocking HTTP connect every 4 s, which froze the whole loop:
   // the web page stopped answering and camera reconnects were starved.
@@ -1144,6 +1177,10 @@ static void redirectHome(){
   gWeb.sendHeader("Location", "/");
   gWeb.send(303, "text/plain", "");
 }
+static void redirectMsg(const char* m){
+  gWeb.sendHeader("Location", String("/?m=") + m);
+  gWeb.send(303, "text/plain", "");
+}
 
 // One page, plain forms, no JavaScript: nothing to load from the internet and
 // nothing that keeps running in the background competing with the trigger.
@@ -1167,6 +1204,8 @@ static void handleRoot(){
          ".row{display:flex;gap:8px;flex-wrap:wrap}"
          "form.add{display:grid;gap:8px;grid-template-columns:1fr 1fr 72px auto}"
          "form.cam{display:grid;gap:8px;grid-template-columns:1fr auto}"
+         "a.b{display:inline-block;background:#2c2728;color:#f2efec;border:1px solid #403a3b;border-radius:6px;padding:7px 12px;text-decoration:none}"
+         "p.ok{color:#3db690}p.no{color:#e85f54}"
          "ul.err{margin-top:14px}ul.err li{display:block;border-color:#e85f54;background:#3b1a17;font-size:14px;line-height:1.45}"
          "input{padding:7px 9px;background:#2c2728;color:#f2efec;min-width:0}"
          "</style><h1>PROCAM trigger</h1><div class=s>");
@@ -1179,6 +1218,17 @@ static void handleRoot(){
   h += F(" &middot; frames ");
   h += String(gFrames);
   h += F("</div>");
+
+  // --- result of the last action -------------------------------------------
+  if (gWeb.hasArg("m")) {
+    String m = gWeb.arg("m");
+    const __FlashStringHelper* msg = nullptr; bool good = false;
+    if      (m == "badhost")  msg = F("Not added: the printer address must be an IPv4 address like 192.168.1.50, and the port 1-65535.");
+    else if (m == "full")     msg = F("Not added: the list is full. Remove a printer first.");
+    else if (m == "badcfg")   msg = F("Restore failed: that file is not a PROCAM backup, or it has an invalid line. Nothing was changed.");
+    else if (m == "restored") { msg = F("Settings restored."); good = true; }
+    if (msg) { h += good ? F("<p class=ok>") : F("<p class=no>"); h += msg; h += F("</p>"); }
+  }
 
   // --- problems: what is wrong right now, and what to do about it -----------
   String probs;
@@ -1206,6 +1256,7 @@ static void handleRoot(){
                        probs += F(" is offline. Is it switched on? Checking again every 15 s."); break;
       case MR_TOKEN:   probs += F("The printer answered but refused a login token. Check Moonraker's authorization settings."); break;
       case MR_NOWS:    probs += F("The printer answered but the live link did not open. Retrying."); break;
+      case MR_NOPRINTER: probs += F("No printer to watch. Add one under Printer to watch."); break;
       default:         probs += F("Linking to the printer&hellip;"); break;
     }
     probs += F("</li>");
@@ -1241,20 +1292,26 @@ static void handleRoot(){
       h += F("<form method=post action=/select><input type=hidden name=i value=");
       h += String(i); h += F("><button class=p>Watch</button></form>");
     }
-    if (gPrinterCount > 1) {
-      h += F("<form method=post action=/del><input type=hidden name=i value=");
-      h += String(i); h += F("><button>Remove</button></form>");
-    }
+    h += F("<form method=post action=/del><input type=hidden name=i value=");
+    h += String(i); h += F("><button>Remove</button></form>");
     h += F("</div></li>");
   }
+  if (!gPrinterCount) h += F("<li>No printers yet &mdash; add one below.</li>");
   h += F("</ul>");
   if (gPrinterCount < OC_MAX_PRINTERS) {
     h += F("<form class=add method=post action=/add>"
            "<input name=name placeholder=Name maxlength=23>"
-           "<input name=host placeholder=192.168.1.50 maxlength=39 required>"
+           "<input name=host placeholder=192.168.1.50 maxlength=15 required title='IPv4 address'>"
            "<input name=port value=7125 maxlength=5>"
            "<button class=p>Add</button></form>");
   }
+  h += F("<h2>Settings backup</h2><div class=row><a class=b href=/config>Download backup</a></div>"
+         "<form class=cam method=post action=/restore enctype=multipart/form-data style='margin-top:8px'>"
+         "<input type=file name=cfg accept='.txt,text/plain' required><button class=p>Restore</button></form>"
+         "<p class=s>Printers, which one is watched, and the camera address. They already survive firmware "
+         "updates; this is for moving to a new board or undoing a mistake. WiFi and the OTA password come "
+         "from secrets.h and are not included.</p>");
+
 #if OC_USE_OTA
   if (OTA_PASSWORD[0]) {
     h += F("<h2>Firmware</h2><p class=s><a href=/update style='color:#ffb600'>Upload a new firmware .bin</a> "
@@ -1271,30 +1328,34 @@ static void handleSelect(){
 }
 static void handleAdd(){
   String host = gWeb.arg("host"); host.trim();
-  if (host.length() && gPrinterCount < OC_MAX_PRINTERS) {
+  long port = gWeb.hasArg("port") && gWeb.arg("port").length() ? gWeb.arg("port").toInt() : 7125;
+  if (gPrinterCount >= OC_MAX_PRINTERS)       { redirectMsg("full");    return; }
+  if (!validIPv4(host) || port < 1 || port > 65535) { redirectMsg("badhost"); return; }
+  {
     Printer& p = gPrinters[gPrinterCount];
     memset(&p, 0, sizeof(p));
-    String name = gWeb.arg("name"); name.trim();
+    String name = cleanName(gWeb.arg("name"));
     if (!name.length()) name = host;
     strncpy(p.name, name.c_str(), sizeof(p.name) - 1);
     strncpy(p.host, host.c_str(), sizeof(p.host) - 1);
-    long port = gWeb.arg("port").toInt();
-    p.port = (port > 0 && port < 65536) ? (uint16_t)port : 7125;
+    p.port = (uint16_t)port;
     gPrinterCount++;
     printersSave();
     Serial.printf("added printer %s at %s:%u\n", p.name, p.host, p.port);
+    if (gPrinterCount == 1) { gActive = 0; printersSave(); dropMoonraker(); }  // first one: watch it
   }
   redirectHome();
 }
 static void handleDel(){
-  if (gWeb.hasArg("i") && gPrinterCount > 1) {
+  if (gWeb.hasArg("i") && gPrinterCount > 0) {
     uint8_t i = (uint8_t)gWeb.arg("i").toInt();
     if (i < gPrinterCount) {
       bool wasActive = (i == gActive);
       for (uint8_t k = i; k + 1 < gPrinterCount; k++) gPrinters[k] = gPrinters[k + 1];
       gPrinterCount--;
-      if (wasActive)      gActive = 0;
+      if (wasActive)        gActive = 0;
       else if (gActive > i) gActive--;
+      if (!gPrinterCount)   gActive = 0;
       printersSave();
       if (wasActive) dropMoonraker();     // it was watching the one just removed
     }
@@ -1307,6 +1368,95 @@ static void handlePhoto(){
   triggerPhoto("web", 0);
   redirectHome();
 }
+// Backup is a plain text file, so it can be read and edited by hand:
+//   camera=192.168.100.240
+//   active=0
+//   printer=K2 Pro|192.168.100.199|7125
+static void handleConfig(){
+  String t = F("# PROCAM trigger settings v1\n# Download and restore on the ESP32's web page.\n");
+  t += "camera=";  t += gCamIp; t += '\n';
+  t += "active=";  t += String(gActive); t += '\n';
+  for (uint8_t i = 0; i < gPrinterCount; i++) {
+    t += "printer="; t += gPrinters[i].name; t += '|';
+    t += gPrinters[i].host; t += '|'; t += String(gPrinters[i].port); t += '\n';
+  }
+  gWeb.sendHeader("Content-Disposition", "attachment; filename=\"procam-settings.txt\"");
+  gWeb.send(200, "text/plain; charset=utf-8", t);
+}
+
+// Parse into temporaries and only commit if every line is valid, so a bad
+// file can never leave the board half-restored.
+static bool parseSettings(const String& txt, Printer* out, uint8_t& count, uint8_t& active, String& cam){
+  count = 0; active = 0;
+  bool sawAnything = false;
+  int start = 0;
+  while (start <= (int)txt.length()) {
+    int nl = txt.indexOf('\n', start);
+    if (nl < 0) nl = txt.length();
+    String line = txt.substring(start, nl); line.trim();
+    start = nl + 1;
+    if (!line.length() || line[0] == '#') continue;
+    int eq = line.indexOf('=');
+    if (eq < 0) return false;
+    String key = line.substring(0, eq); key.trim();
+    String val = line.substring(eq + 1); val.trim();
+    if (key == "camera") {
+      if (val.length() && !validIPv4(val)) return false;
+      cam = val; sawAnything = true;
+    } else if (key == "active") {
+      active = (uint8_t)val.toInt(); sawAnything = true;
+    } else if (key == "printer") {
+      if (count >= OC_MAX_PRINTERS) return false;
+      int a = val.indexOf('|'), b = val.indexOf('|', a + 1);
+      if (a < 0 || b < 0) return false;
+      String name = cleanName(val.substring(0, a));
+      String host = val.substring(a + 1, b); host.trim();
+      long port   = val.substring(b + 1).toInt();
+      if (!validIPv4(host) || port < 1 || port > 65535) return false;
+      if (!name.length()) name = host;
+      Printer& p = out[count++];
+      memset(&p, 0, sizeof(p));
+      strncpy(p.name, name.c_str(), sizeof(p.name) - 1);
+      strncpy(p.host, host.c_str(), sizeof(p.host) - 1);
+      p.port = (uint16_t)port;
+      sawAnything = true;
+    }                                   // unknown keys are ignored, for later versions
+    if (nl >= (int)txt.length()) break;
+  }
+  if (active >= count) active = 0;
+  return sawAnything;
+}
+
+static String gRestoreBuf;
+static bool   gRestoreTooBig = false;
+
+static void handleRestoreUpload(){
+  HTTPUpload& up = gWeb.upload();
+  if (up.status == UPLOAD_FILE_START) {
+    gRestoreBuf = ""; gRestoreTooBig = false;
+  } else if (up.status == UPLOAD_FILE_WRITE) {
+    if (gRestoreBuf.length() + up.currentSize > 4096) { gRestoreTooBig = true; return; }
+    for (size_t i = 0; i < up.currentSize; i++) gRestoreBuf += (char)up.buf[i];
+  }
+}
+static void handleRestore(){
+  Printer tmp[OC_MAX_PRINTERS];
+  uint8_t n = 0, act = 0;
+  String cam = gCamIp;
+  bool ok = !gRestoreTooBig && parseSettings(gRestoreBuf, tmp, n, act, cam);
+  gRestoreBuf = "";
+  if (!ok) { redirectMsg("badcfg"); return; }
+  memcpy(gPrinters, tmp, sizeof(Printer) * n);
+  gPrinterCount = n;
+  gActive = act;
+  printersSave();
+  cameraIpSave(cam.c_str());
+  Serial.printf("settings restored: %u printer(s), camera %s\n", n, gCamIp[0] ? gCamIp : "(scan)");
+  dropMoonraker();
+  dropCamera();
+  redirectMsg("restored");
+}
+
 static void handleCamIp(){
   String ip = gWeb.arg("ip"); ip.trim();
   IPAddress check;
@@ -1347,6 +1497,8 @@ static void startWebUi(){
   gWeb.on("/camip",      HTTP_POST, handleCamIp);
   gWeb.on("/camretry",   HTTP_POST, handleCamRetry);
   gWeb.on("/camdefault", HTTP_POST, handleCamDefault);
+  gWeb.on("/config",     HTTP_GET,  handleConfig);
+  gWeb.on("/restore",    HTTP_POST, handleRestore, handleRestoreUpload);
 #if OC_USE_OTA
   if (OTA_PASSWORD[0]) gUpdater.setup(&gWeb, "/update", "admin", OTA_PASSWORD);
 #endif
