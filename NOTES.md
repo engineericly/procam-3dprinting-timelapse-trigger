@@ -160,7 +160,14 @@ CLI="/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/
 **Console**
 
 - **Serve it over plain HTTP.** An HTTPS page cannot call a plain-HTTP printer
-  (mixed content), so the live controls only work from the LAN. The page also
+  (mixed content), so the live controls only work from the LAN.
+- **Open it by IP address, not by name.** Creality's Moonraker (K2 Pro, SparkX
+  i7) returns CORS headers only for pages whose origin is an IP address:
+  `http://127.0.0.1:8080` and `http://192.168.100.114:8080` work, while
+  `http://localhost:8080`, `http://<mac>.local:8080` and `file://` are refused -
+  the request reaches the printer and the browser discards the reply ("Failed
+  to fetch"). No `cors_domains` change is needed; the console warns and links to
+  the IP version when opened by name. The page also
   declares UTF-8 itself; without that, nginx and `http.server` mangled every
   non-ASCII character, including inside copied G-code comments.
 

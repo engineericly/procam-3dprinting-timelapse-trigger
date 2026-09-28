@@ -40,5 +40,7 @@ printers' network:
 python3 -m http.server 8080 --directory console
 ```
 
-HTTPS works for generating G-code, but browsers block an HTTPS page from calling
-a plain-HTTP printer, so the live controls stay off there.
+Open it by **IP address** - `http://127.0.0.1:8080`, not `localhost`. Creality's
+Moonraker only answers pages opened by IP; by name (`localhost`, `*.local`) or as
+a file, the live controls fail with "Failed to fetch". HTTPS works for generating
+G-code, but browsers block an HTTPS page from calling a plain-HTTP printer.

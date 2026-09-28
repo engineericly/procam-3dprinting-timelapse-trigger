@@ -1382,10 +1382,34 @@ function mixedContentBlocked(){
   var t = mrBase();
   return location.protocol === "https:" && t !== "" && !/^https:/i.test(t);
 }
+/* Creality's Moonraker lets a browser read its replies only when the page was
+   opened by IP address. Measured on the K2 Pro and the SparkX i7: origins like
+   http://127.0.0.1:8080 or http://192.168.1.20:8080 are allowed, while
+   http://localhost:8080, http://mymac.local:8080 and a file opened directly are
+   refused - the request reaches the printer and the browser discards the reply
+   ("Failed to fetch"). Nothing on the printer needs changing; open the page by IP. */
+function pageOpenedByIp(){
+  if(location.protocol === "file:") return false;
+  var h = location.hostname;
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.indexOf(":") >= 0;   // IPv4, or an IPv6 literal
+}
+function ipUrlSuggestion(){
+  if(location.protocol === "file:") return "";
+  if(location.hostname === "localhost") return location.href.replace("//localhost", "//127.0.0.1");
+  return "";
+}
 function renderBlockedNote(){
   if(mixedContentBlocked()){
     $("mrBlocked").innerHTML = note("warn","!","This page is on <b>HTTPS</b> but the printer address is plain <b>HTTP</b>, and browsers block that combination. Open this page over <b>http://</b> from a machine on the printer's network to use the live controls. The generator works either way.");
     return true;
+  }
+  if(!pageOpenedByIp()){
+    var alt = ipUrlSuggestion();
+    var how = location.protocol === "file:"
+      ? "It is open as a file. Serve the <code>console</code> folder and open it by IP, e.g. <code>python3 -m http.server 8080 --directory console</code> then <b>http://127.0.0.1:8080</b>."
+      : "It is open as <b>" + esc(location.host) + "</b>. Use an IP address for the same page instead" + (alt ? ": <a href=\"" + esc(alt) + "\">" + esc(alt) + "</a>" : ", e.g. this computer's LAN IP.");
+    $("mrBlocked").innerHTML = note("warn","!","The live controls need this page opened by <b>IP address</b>. Creality's Moonraker refuses pages opened by name (like <code>localhost</code> or a <code>.local</code> name) or as a file, so every request fails with \"Failed to fetch\". " + how + " Nothing on the printer needs changing.");
+    return false;   // still let them try - another printer's Moonraker may be configured differently
   }
   $("mrBlocked").innerHTML = "";
   return false;
@@ -1423,7 +1447,9 @@ function checkLink(){
     setLiveButtons(true); queryHomed();
   }).catch(function(e){
     mrOK = false; setLink("bad","No link");
-    logLine("er","Unreachable: "+(e&&e.message?e.message:e)+". Check the address, and that cors_domains in moonraker.conf allows this page.");
+    logLine("er","Unreachable: "+(e&&e.message?e.message:e)+". "+(pageOpenedByIp()
+      ? "Check the printer is on and the address is right."
+      : "Most likely the browser discarded the reply because this page was opened by name, not IP - see the note above."));
     setLiveButtons(false);
   });
 }
