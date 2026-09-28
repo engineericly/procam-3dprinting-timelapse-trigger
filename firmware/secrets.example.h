@@ -17,3 +17,8 @@
 
 // The camera, once it has joined the same network.
 #define CAM_IP_STR "192.168.1.60"
+
+// Password for wireless firmware updates - the Arduino IDE network port
+// "procam", and the /update page (user "admin"). Leave empty to keep OTA off;
+// an update endpoint without a password lets anyone on the LAN reflash it.
+#define OTA_PASSWORD ""

@@ -45,7 +45,16 @@
  *   http://procam.local/ - take a photo, start/stop recording, and pick which
  *   printer to watch from a saved list (add/remove, stored in NVS). Switching
  *   takes effect immediately, no reflash. MOONRAKER_HOST only seeds the list
- *   on a board that has never been configured.
+ *   on a board that has never been configured. The camera address is set the
+ *   same way; CAM_IP_STR is its default and "Reset to default" returns to it.
+ *   Anything wrong - printer offline, camera not answering or still holding an
+ *   old session, a bad camera address - is explained on the page with what to
+ *   do, and shown as a short code on the OLED's bottom line.
+ *
+ * WIRELESS UPDATES (OC_USE_OTA)
+ *   Set OTA_PASSWORD in secrets.h, flash once over USB with the partition
+ *   scheme "Minimal SPIFFS (1.9MB APP with OTA)", then either pick "procam" as
+ *   the network port in the Arduino IDE, or upload a .bin at /update.
  *
  * Protocol notes, verified against alpha-fairy's ptpsonycodes.h:
  *   SDIOConnect            0x9201
@@ -84,6 +93,11 @@ struct Button {
   uint32_t lastChange, pressStart;
 };
 enum BtnEvent { BTN_NONE, BTN_TAP, BTN_LONG };
+
+// What is currently wrong, for the web page and the OLED. Declared up here for
+// the same prototype-injection reason as Button above.
+enum CamErr { CE_NONE, CE_BADIP, CE_NOTFOUND, CE_NOANSWER, CE_BUSY, CE_REFUSED, CE_LOST };
+enum MrErr  { MR_NONE, MR_OFFLINE, MR_TOKEN, MR_NOWS };
 
 // One saved printer. Stored as a raw blob in NVS, so keep it POD and keep the
 // field sizes stable - changing them invalidates what is already on the board.
@@ -152,6 +166,18 @@ struct Printer {
 #define OC_WEB_PORT     80
 #define OC_MDNS_NAME    "procam"     // http://procam.local/
 #define OC_MAX_PRINTERS 6
+
+// --- wireless updates -------------------------------------------------------
+// Two ways, both behind OTA_PASSWORD from secrets.h: the Arduino IDE lists the
+// board as a network port called "procam", and http://procam.local/update takes
+// a .bin (user "admin"). Leave OTA_PASSWORD empty and OTA is off - an open
+// update endpoint would let anyone on the LAN reflash the board.
+// Needs a partition scheme WITH OTA: Tools > Partition Scheme > "Minimal SPIFFS
+// (1.9MB APP with OTA)". "Huge APP" has no OTA slot, so updates cannot work.
+#define OC_USE_OTA 1
+#ifndef OTA_PASSWORD
+#  define OTA_PASSWORD ""
+#endif
 
 // --- buttons ----------------------------------------------------------------
 //   REC   : on-board BOOT button, GPIO9, active low (internal pull-up).
@@ -245,9 +271,17 @@ struct Printer {
 
 #include <nvs_flash.h>
 #include <Preferences.h>
+#if OC_USE_WEBUI || OC_USE_OTA
+  #include <ESPmDNS.h>
+#endif
 #if OC_USE_WEBUI
   #include <WebServer.h>
-  #include <ESPmDNS.h>
+#endif
+#if OC_USE_OTA
+  #include <ArduinoOTA.h>
+  #if OC_USE_WEBUI
+    #include <HTTPUpdateServer.h>
+  #endif
 #endif
 
 // Includes that depend on the options above.
@@ -303,6 +337,43 @@ static uint8_t     gPrinterCount = 0;
 static uint8_t     gActive       = 0;
 static Preferences gPrefs;
 
+// Camera address, editable on the web page. CAM_IP_STR is only the default:
+// once a value is saved, that wins. Blank means scan the subnet for it.
+static char     gCamIp[40]      = "";
+static uint32_t gCamLastTry     = 0;      // last camera reconnect attempt
+static uint8_t  gCamFails       = 0;      // consecutive failures, for back-off
+
+// Moonraker link state. An unreachable printer is probed cheaply and retried
+// slowly, and the websocket library is only serviced while it has a real host
+// to talk to - otherwise it would block the loop reconnecting to a dead one.
+static bool     gPrinterReachable = true;
+static bool     gWsArmed          = false;
+static uint32_t gWsArmedAt        = 0;
+
+static CamErr   gCamErr = CE_NONE;
+static MrErr    gMrErr  = MR_NONE;
+
+// Short forms for the 72x40 OLED - 14 characters at most.
+static const char* camErrShort(){
+  switch (gCamErr) {
+    case CE_BADIP:    return "CAM BAD IP";
+    case CE_NOTFOUND: return "CAM NOT FOUND";
+    case CE_NOANSWER: return "CAM NO ANSWER";
+    case CE_BUSY:     return "CAM BUSY";
+    case CE_REFUSED:  return "CAM REFUSED";
+    case CE_LOST:     return "CAM LOST";
+    default:          return "";
+  }
+}
+static const char* mrErrShort(){
+  switch (gMrErr) {
+    case MR_OFFLINE: return "PRN OFFLINE";
+    case MR_TOKEN:   return "PRN NO TOKEN";
+    case MR_NOWS:    return "PRN NO LINK";
+    default:         return "";
+  }
+}
+
 static const char* activeHost(){ return gPrinterCount ? gPrinters[gActive].host : MOONRAKER_HOST; }
 static uint16_t    activePort(){ return gPrinterCount ? gPrinters[gActive].port : (uint16_t)MOONRAKER_PORT; }
 static const char* activeName(){ return gPrinterCount ? gPrinters[gActive].name : "default"; }
@@ -334,6 +405,26 @@ static void printersLoad(){
     printersSave();
   }
   if (gActive >= gPrinterCount) gActive = 0;
+
+  gPrefs.begin("procam", true);
+  String cam = gPrefs.getString("camip", CAM_IP_STR);
+  gPrefs.end();
+  strncpy(gCamIp, cam.c_str(), sizeof(gCamIp) - 1);
+}
+
+static void cameraIpSave(const char* ip){
+  strncpy(gCamIp, ip, sizeof(gCamIp) - 1);
+  gCamIp[sizeof(gCamIp) - 1] = 0;
+  gPrefs.begin("procam", false);
+  gPrefs.putString("camip", gCamIp);
+  gPrefs.end();
+}
+static void cameraIpReset(){
+  gPrefs.begin("procam", false);
+  gPrefs.remove("camip");
+  gPrefs.end();
+  strncpy(gCamIp, CAM_IP_STR, sizeof(gCamIp) - 1);
+  gCamIp[sizeof(gCamIp) - 1] = 0;
 }
 
 enum State { ST_WIFI, ST_HANDSHAKE, ST_READY, ST_LOST };
@@ -460,7 +551,14 @@ static void draw() {
 
   u8g2.setFont(u8g2_font_5x8_tr);
   if (gStatus[0] && millis() < gStatusTil) u8g2.drawStr(0,38,gStatus);
-  else { gStatus[0]=0; u8g2.drawStr(0,38, gState==ST_READY ? (gFrames ? "frames" : "BOOT=rec SW=pic") : ""); }
+  else {
+    gStatus[0]=0;
+    // Camera problems first - without the camera nothing is captured at all.
+    const char* err = camErrShort();
+    if (!*err) err = mrErrShort();
+    if (*err) u8g2.drawStr(0,38,err);
+    else u8g2.drawStr(0,38, gState==ST_READY ? (gFrames ? "frames" : "BOOT=rec SW=pic") : "");
+  }
   u8g2.sendBuffer();
 #endif
 }
@@ -550,11 +648,12 @@ static bool ptpHandshakeInner(IPAddress cam) {
   gState = ST_HANDSHAKE; draw();
   gTxn = 1;
 
-  if (!cmdSock.connect(cam, PTPIP_PORT)) {
+  if (!cmdSock.connect(cam, PTPIP_PORT, 1500)) {
     // Usually means the camera still holds the previous session. It only
     // accepts one PTP client, and a reset board leaves the old one dangling
     // until the camera times it out. Retrying is the cure; nothing is wrong.
     Serial.println("cmd TCP failed (camera may still hold the old session)");
+    gCamErr = CE_NOANSWER;
     return false;
   }
   uint8_t pkt[128]; size_t n = 8;
@@ -566,20 +665,26 @@ static bool ptpHandshakeInner(IPAddress cam) {
 
   uint8_t rx[512];
   int len = readPacket(cmdSock, rx, sizeof(rx));
-  if (len < 0 || get32(rx+4) != 0x00000002) { Serial.println("no Init Command Ack"); return false; }
+  if (len < 0 || get32(rx+4) != 0x00000002) {
+    // TCP connected but no session: almost always the camera still holding the
+    // previous one, e.g. after the board was reflashed or reset mid-session.
+    Serial.println("no Init Command Ack");
+    gCamErr = CE_BUSY;
+    return false;
+  }
   gConnNum = get32(rx+8);
   Serial.printf("   Init Command Ack, conn %lu\n", (unsigned long)gConnNum);
 
-  if (!evtSock.connect(cam, PTPIP_PORT)) { Serial.println("evt TCP failed"); return false; }
+  if (!evtSock.connect(cam, PTPIP_PORT, 1500)) { Serial.println("evt TCP failed"); gCamErr = CE_NOANSWER; return false; }
   uint8_t ev[12];
   put32(ev+0,12); put32(ev+4,0x00000003); put32(ev+8,gConnNum);
   evtSock.write(ev,12); evtSock.flush();
   len = readPacket(evtSock, rx, sizeof(rx));
-  if (len < 0 || get32(rx+4) != 0x00000004) { Serial.println("no Init Event Ack"); return false; }
+  if (len < 0 || get32(rx+4) != 0x00000004) { Serial.println("no Init Event Ack"); gCamErr = CE_BUSY; return false; }
   Serial.println("   Init Event Ack");
 
   uint32_t p1[1] = {1};
-  if (!ptpOp(OP_OpenSession, p1, 1, nullptr, 0, "OpenSession")) return false;
+  if (!ptpOp(OP_OpenSession, p1, 1, nullptr, 0, "OpenSession")) { gCamErr = CE_REFUSED; return false; }
 
   // Sony's connect handshake, order taken from alpha-fairy's init_table.
   uint32_t z[3]   = {0,0,0};
@@ -592,13 +697,14 @@ static bool ptpHandshakeInner(IPAddress cam) {
   // we never touch storage. Logged as FAIL only because 0x2001 is the
   // generic success code.
   ptpOp(OP_GetStorageIDs,        z,   0, nullptr, 0, "GetStorageIDs (opt)");
-  if (!ptpOp(OP_SDIOConnect,     c1,  3, nullptr, 0, "SDIOConnect(1)")) return false;
-  if (!ptpOp(OP_SDIOConnect,     c2,  3, nullptr, 0, "SDIOConnect(2)")) return false;
+  if (!ptpOp(OP_SDIOConnect,     c1,  3, nullptr, 0, "SDIOConnect(1)")) { gCamErr = CE_REFUSED; return false; }
+  if (!ptpOp(OP_SDIOConnect,     c2,  3, nullptr, 0, "SDIOConnect(2)")) { gCamErr = CE_REFUSED; return false; }
   ptpOp(OP_SDIOGetExtDeviceInfo, inf, 3, nullptr, 0, "GetExtDeviceInfo");
-  if (!ptpOp(OP_SDIOConnect,     c3,  3, nullptr, 0, "SDIOConnect(3)")) return false;
+  if (!ptpOp(OP_SDIOConnect,     c3,  3, nullptr, 0, "SDIOConnect(3)")) { gCamErr = CE_REFUSED; return false; }
   ptpOp(OP_SDIOGetExtDeviceInfo, inf, 3, nullptr, 0, "GetExtDeviceInfo");
 
   gState = ST_READY; gDirty = true;
+  gCamErr = CE_NONE;
   gLastActivity = millis();
   setStatus("ready");
   Serial.println("   *** CAMERA READY ***");
@@ -612,9 +718,11 @@ static bool ptpHandshakeInner(IPAddress cam) {
 // few seconds; that is fine here since it only runs at startup/reconnect,
 // never per-shot.
 static bool resolveCameraIP(IPAddress& out) {
-  if (CAM_IP_STR[0] != '\0') {
-    if (out.fromString(CAM_IP_STR)) return true;
-    Serial.println("!! CAM_IP_STR is set but did not parse as an IP - check it");
+  if (gCamIp[0] != '\0') {
+    if (out.fromString(gCamIp)) return true;
+    Serial.printf("!! camera address \"%s\" is not an IP - fix it on the web page\n", gCamIp);
+    gCamErr = CE_BADIP; gDirty = true;
+    return false;
   }
 
   IPAddress local = WiFi.localIP();
@@ -632,6 +740,7 @@ static bool resolveCameraIP(IPAddress& out) {
     }
   }
   Serial.println("!! no device answering on the PTP/IP port found on the subnet");
+  gCamErr = CE_NOTFOUND; gDirty = true;
   return false;
 }
 
@@ -747,7 +856,7 @@ static void triggerPhoto(const char* source, uint32_t settleMs) {
     setStatus("waiting...", settleMs + 200);
     draw();
     uint32_t t0 = millis();
-    while (millis() - t0 < settleMs) { pumpEvents(); wsClient.loop(); delay(10); }
+    while (millis() - t0 < settleMs) { pumpEvents(); if (gWsArmed) wsClient.loop(); delay(10); }
   }
   doPhoto();
   Serial.printf("[%lu] frame %lu (%s)\n", (unsigned long)millis(), (unsigned long)gFrames, source);
@@ -810,6 +919,7 @@ static bool fetchOneshotToken(String& tokenOut) {
   String url = String("http://") + activeHost() + ":" + String(activePort())
              + "/access/oneshot_token";
   http.begin(url);
+  http.setConnectTimeout(1500);
   http.setTimeout(3000);
   int code = http.GET();
   if (code != 200) {
@@ -865,12 +975,14 @@ static void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
     case WStype_CONNECTED:
       Serial.println("   Moonraker websocket connected");
       gMoonrakerConnected = true; gDirty = true;
+      gMrErr = MR_NONE;
       sendMoonrakerIdentify();
       sendMoonrakerSubscribe();
       break;
     case WStype_DISCONNECTED:
       Serial.println("   Moonraker websocket disconnected");
       gMoonrakerConnected = false; gDirty = true;
+      gWsArmed = false;          // our own reconnect probes first from here
       break;
     case WStype_TEXT: {
       // TEMP DIAGNOSTIC: log every incoming text frame (truncated) so we
@@ -918,9 +1030,30 @@ static void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
 // call gets its own new token, so a stale in-flight attempt is simply
 // superseded rather than reused.
 static void connectMoonraker() {
+  // Cheap reachability probe first. Without it an offline printer cost a
+  // multi-second blocking HTTP connect every 4 s, which froze the whole loop:
+  // the web page stopped answering and camera reconnects were starved.
+  {
+    WiFiClient probe;
+    if (!probe.connect(activeHost(), activePort(), 400)) {
+      if (gPrinterReachable) {
+        Serial.printf("   printer %s at %s:%u is not reachable - checking again every 15 s\n",
+                      activeName(), activeHost(), activePort());
+      }
+      gPrinterReachable = false;
+      gMrErr = MR_OFFLINE;
+      gDirty = true;
+      return;
+    }
+    probe.stop();
+  }
+  if (!gPrinterReachable) Serial.printf("   printer %s is reachable again\n", activeName());
+  gPrinterReachable = true;
+
   String token;
   if (!fetchOneshotToken(token)) {
     Serial.println("   could not get a oneshot_token - will retry");
+    gMrErr = MR_TOKEN; gDirty = true;
     return;
   }
   // begin() does NOT close/release whatever socket a previous begin() call
@@ -957,6 +1090,8 @@ static void connectMoonraker() {
   // further orphaned socket. Slow its internal retry down to match ours so
   // it stops fighting our own reconnect logic.
   wsClient.setReconnectInterval(MOONRAKER_RECONNECT_MS);
+  gWsArmed   = true;
+  gWsArmedAt = millis();
 }
 
 // ------------------------------------------------------ switching + web UI --
@@ -964,6 +1099,9 @@ static void connectMoonraker() {
 // drop the socket and let loop() reconnect on its next pass with a fresh token.
 static void dropMoonraker(){
   wsClient.disconnect();
+  gWsArmed              = false;
+  gPrinterReachable     = true;        // give the new host an immediate try
+  gMrErr                = MR_NONE;
   gMoonrakerConnected   = false;
   gMoonrakerLastAttempt = 0;           // reconnect on the next loop pass
   gDirty = true;
@@ -977,8 +1115,19 @@ static void switchPrinter(uint8_t i){
   dropMoonraker();
 }
 
+// Drop the camera session and reconnect on the next loop pass.
+static void dropCamera(){
+  cmdSock.stop(); evtSock.stop();
+  gState = ST_LOST; gRecording = false;
+  gCamFails = 0; gCamLastTry = 0;
+  gDirty = true;
+}
+
 #if OC_USE_WEBUI
 static WebServer gWeb(OC_WEB_PORT);
+#if OC_USE_OTA
+static HTTPUpdateServer gUpdater;
+#endif
 
 static String htmlEsc(const char* in){
   String o;
@@ -1017,15 +1166,51 @@ static void handleRoot(){
          "button.rec{background:#e85f54;border-color:#e85f54;color:#fff;font-weight:600}"
          ".row{display:flex;gap:8px;flex-wrap:wrap}"
          "form.add{display:grid;gap:8px;grid-template-columns:1fr 1fr 72px auto}"
+         "form.cam{display:grid;gap:8px;grid-template-columns:1fr auto}"
+         "ul.err{margin-top:14px}ul.err li{display:block;border-color:#e85f54;background:#3b1a17;font-size:14px;line-height:1.45}"
          "input{padding:7px 9px;background:#2c2728;color:#f2efec;min-width:0}"
          "</style><h1>PROCAM trigger</h1><div class=s>");
 
-  h += gMoonrakerConnected ? F("<span class=ok>printer linked</span>") : F("<span class=no>printer not linked</span>");
+  if (gMoonrakerConnected)     h += F("<span class=ok>printer linked</span>");
+  else if (!gPrinterReachable) h += F("<span class=no>printer offline</span>");
+  else                         h += F("<span class=no>printer linking</span>");
   h += F(" &middot; ");
   h += (gState == ST_READY) ? F("<span class=ok>camera ready</span>") : F("<span class=no>camera not ready</span>");
   h += F(" &middot; frames ");
   h += String(gFrames);
   h += F("</div>");
+
+  // --- problems: what is wrong right now, and what to do about it -----------
+  String probs;
+  if (gState != ST_READY) {
+    probs += F("<li>");
+    switch (gCamErr) {
+      case CE_BADIP:    probs += F("Camera address is not a valid IP. Fix it under Camera address."); break;
+      case CE_NOTFOUND: probs += F("Scanned the network and found no camera. Is it on, and joined to this router in PC Remote mode?"); break;
+      case CE_NOANSWER: probs += F("Camera at "); probs += htmlEsc(gCamIp);
+                        probs += F(" is not answering on port 15740. Is it switched on, and in PC Remote on this router's network?"); break;
+      case CE_BUSY:     probs += F("Camera answered but would not start a session &mdash; it is most likely still holding the previous one "
+                                   "(this happens after the board is reflashed or reset). Power-cycle the camera, or turn its network "
+                                   "function off and on, then press Reconnect camera."); break;
+      case CE_REFUSED:  probs += F("Camera rejected the connection handshake. Check it is in PC Remote mode."); break;
+      case CE_LOST:     probs += F("Lost the camera connection. Reconnecting."); break;
+      default:          probs += F("Connecting to the camera&hellip;"); break;
+    }
+    probs += F("</li>");
+  }
+  if (!gMoonrakerConnected) {
+    probs += F("<li>");
+    switch (gMrErr) {
+      case MR_OFFLINE: probs += F("Printer <b>"); probs += htmlEsc(activeName()); probs += F("</b> at ");
+                       probs += htmlEsc(activeHost()); probs += ':'; probs += String(activePort());
+                       probs += F(" is offline. Is it switched on? Checking again every 15 s."); break;
+      case MR_TOKEN:   probs += F("The printer answered but refused a login token. Check Moonraker's authorization settings."); break;
+      case MR_NOWS:    probs += F("The printer answered but the live link did not open. Retrying."); break;
+      default:         probs += F("Linking to the printer&hellip;"); break;
+    }
+    probs += F("</li>");
+  }
+  if (probs.length()) { h += F("<ul class=err>"); h += probs; h += F("</ul>"); }
 
   // --- camera -------------------------------------------------------------
   h += F("<h2>Camera</h2><div class=row>"
@@ -1034,6 +1219,16 @@ static void handleRoot(){
   h += gRecording ? F("rec>Stop recording") : F(">Start recording");
   h += F("</button></form></div><p class=s>Stills or movie is set on the camera body. "
          "In movie mode the shutter command is accepted but ignored.</p>");
+
+  h += F("<h2>Camera address</h2><form class=cam method=post action=/camip>"
+         "<input name=ip maxlength=39 placeholder='blank = scan the network' value=\"");
+  h += htmlEsc(gCamIp);
+  h += F("\"><button class=p>Save</button></form><div class=row style='margin-top:8px'>"
+         "<form method=post action=/camretry><button>Reconnect camera</button></form>"
+         "<form method=post action=/camdefault><button>Reset to default</button></form></div>"
+         "<p class=s>Default: ");
+  h += htmlEsc(CAM_IP_STR[0] ? CAM_IP_STR : "scan");
+  h += F(". Give the camera a DHCP reservation on the router so this never changes.</p>");
 
   // --- printers -----------------------------------------------------------
   h += F("<h2>Printer to watch</h2><ul>");
@@ -1060,6 +1255,13 @@ static void handleRoot(){
            "<input name=port value=7125 maxlength=5>"
            "<button class=p>Add</button></form>");
   }
+#if OC_USE_OTA
+  if (OTA_PASSWORD[0]) {
+    h += F("<h2>Firmware</h2><p class=s><a href=/update style='color:#ffb600'>Upload a new firmware .bin</a> "
+           "(user <b>admin</b>), or pick <b>procam</b> as the network port in the Arduino IDE. "
+           "Not mid-print: the camera stops until the board reboots.</p>");
+  }
+#endif
   gWeb.send(200, "text/html; charset=utf-8", h);
 }
 
@@ -1105,6 +1307,29 @@ static void handlePhoto(){
   triggerPhoto("web", 0);
   redirectHome();
 }
+static void handleCamIp(){
+  String ip = gWeb.arg("ip"); ip.trim();
+  IPAddress check;
+  if (ip.length() == 0 || check.fromString(ip)) {   // blank = scan, otherwise must be an IP
+    cameraIpSave(ip.c_str());
+    Serial.printf("camera address set to %s\n", ip.length() ? ip.c_str() : "(scan)");
+    setStatus("cam saved", 2000);
+    dropCamera();
+  } else {
+    setStatus("bad cam IP", 2500);
+  }
+  redirectHome();
+}
+static void handleCamRetry(){
+  dropCamera();
+  redirectHome();
+}
+static void handleCamDefault(){
+  cameraIpReset();
+  Serial.printf("camera address reset to default %s\n", gCamIp[0] ? gCamIp : "(scan)");
+  dropCamera();
+  redirectHome();
+}
 static void handleRecord(){
   if (gState == ST_READY) doRecordToggle();
   else setStatus("no camera");
@@ -1119,9 +1344,57 @@ static void startWebUi(){
   gWeb.on("/del",    HTTP_POST, handleDel);
   gWeb.on("/photo",  HTTP_POST, handlePhoto);
   gWeb.on("/record", HTTP_POST, handleRecord);
+  gWeb.on("/camip",      HTTP_POST, handleCamIp);
+  gWeb.on("/camretry",   HTTP_POST, handleCamRetry);
+  gWeb.on("/camdefault", HTTP_POST, handleCamDefault);
+#if OC_USE_OTA
+  if (OTA_PASSWORD[0]) gUpdater.setup(&gWeb, "/update", "admin", OTA_PASSWORD);
+#endif
   gWeb.begin();
   Serial.printf("web UI: http://%s.local/  or  http://%s/\n",
                 OC_MDNS_NAME, WiFi.localIP().toString().c_str());
+}
+#endif
+
+#if OC_USE_OTA
+static bool gOtaOn = false;
+
+static void startOta(){
+  if (!OTA_PASSWORD[0]) {
+    Serial.println("OTA off - set OTA_PASSWORD in secrets.h to enable wireless updates");
+    return;
+  }
+  ArduinoOTA.setHostname(OC_MDNS_NAME);
+  ArduinoOTA.setPassword(OTA_PASSWORD);
+#if OC_USE_WEBUI
+  ArduinoOTA.setMdnsEnabled(false);        // the web UI has already started mDNS
+#endif
+  ArduinoOTA.onStart([](){
+    // Free the camera and the printer link first; the board reboots at the end.
+    cmdSock.stop(); evtSock.stop(); wsClient.disconnect();
+    setStatus("OTA start", 60000); draw();
+  });
+  ArduinoOTA.onProgress([](unsigned int done, unsigned int total){
+    static int last = -1;
+    int pct = total ? (int)((done * 100ULL) / total) : 0;
+    if (pct != last && pct % 5 == 0) {
+      last = pct;
+      char b[16]; snprintf(b, sizeof(b), "OTA %d%%", pct);
+      setStatus(b, 60000); draw();
+    }
+  });
+  ArduinoOTA.onEnd([](){ setStatus("OTA done", 5000); draw(); });
+  ArduinoOTA.onError([](ota_error_t e){
+    char b[16]; snprintf(b, sizeof(b), "OTA ERR %u", (unsigned)e);
+    setStatus(b, 8000); draw();
+    Serial.printf("OTA error %u\n", (unsigned)e);
+  });
+  ArduinoOTA.begin();
+#if OC_USE_WEBUI
+  MDNS.enableArduino(3232, true);          // so the IDE lists "procam" as a network port
+#endif
+  gOtaOn = true;
+  Serial.println("OTA ready - Arduino IDE network port \"procam\", or http://procam.local/update");
 }
 #endif
 
@@ -1187,6 +1460,7 @@ void setup() {
   printersLoad();
   Serial.printf("watching printer: %s at %s:%u (%u saved)\n",
                 activeName(), activeHost(), activePort(), gPrinterCount);
+  Serial.printf("camera address: %s\n", gCamIp[0] ? gCamIp : "(scan the subnet)");
   // The old check compared against "192.168.1.xxx", which was never the actual
   // default, so it could not fire. Compare against the real placeholder.
   if (strcmp(activeHost(), "192.168.1.50") == 0) {
@@ -1196,6 +1470,9 @@ void setup() {
   if (joinWifi()) {
 #if OC_USE_WEBUI
     startWebUi();
+#endif
+#if OC_USE_OTA
+    startOta();
 #endif
     connectMoonraker();
     gMoonrakerLastAttempt = millis();
@@ -1209,25 +1486,41 @@ void loop() {
 #if OC_USE_WEBUI
   gWeb.handleClient();
 #endif
+#if OC_USE_OTA
+  if (gOtaOn) ArduinoOTA.handle();
+#endif
   serviceButtons();
   pumpEvents();
-  wsClient.loop();
+  if (gWsArmed) {
+    wsClient.loop();
+    // A begin() that never reaches CONNECTED would otherwise leave the library
+    // retrying a spent one-shot token against a possibly dead host.
+    if (!gMoonrakerConnected && millis() - gWsArmedAt > 8000) {
+      wsClient.disconnect();
+      gWsArmed = false;
+      gMrErr = MR_NOWS; gDirty = true;
+    }
+  }
 
   // Reconnect if either the Wi-Fi or the command socket drops.
   if (gState == ST_READY && (!cmdSock.connected() || WiFi.status() != WL_CONNECTED)) {
     Serial.println("connection lost");
     gState = ST_LOST; gRecording = false; gDirty = true;
+    gCamErr = CE_LOST;
     cmdSock.stop(); evtSock.stop();
   }
   if (gState != ST_READY) {
-    static uint32_t lastTry = 0;
-    if (millis() - lastTry > 5000) {
-      lastTry = millis();
+    // Back off after repeated failures so a missing camera does not keep the
+    // loop - and the web page - busy with 1.5 s connect attempts.
+    uint32_t camWait = gCamFails >= 3 ? 15000 : 5000;
+    if (millis() - gCamLastTry > camWait) {
+      gCamLastTry = millis();
       Serial.printf("[%lu] reconnect attempt (state=%d)\n", (unsigned long)millis(), gState);
       if (WiFi.status() != WL_CONNECTED) { joinWifi(); }
       if (WiFi.status() == WL_CONNECTED) {
         IPAddress cam;
-        if (resolveCameraIP(cam)) ptpHandshake(cam);
+        bool ok = resolveCameraIP(cam) && ptpHandshake(cam);
+        gCamFails = ok ? 0 : (gCamFails < 255 ? gCamFails + 1 : 255);
       }
     }
   }
@@ -1236,8 +1529,9 @@ void loop() {
   // to keep retrying (fetch a fresh oneshot_token, reopen the socket) even
   // while the camera side is already ST_READY, and vice versa. Kept under
   // the 5s token expiry so a fetched token is always used promptly.
-  if (!gMoonrakerConnected && WiFi.status() == WL_CONNECTED &&
-      millis() - gMoonrakerLastAttempt > MOONRAKER_RECONNECT_MS) {
+  uint32_t mrWait = gPrinterReachable ? MOONRAKER_RECONNECT_MS : 15000;
+  if (!gMoonrakerConnected && !gWsArmed && WiFi.status() == WL_CONNECTED &&
+      millis() - gMoonrakerLastAttempt > mrWait) {
     gMoonrakerLastAttempt = millis();
     connectMoonraker();
   }
@@ -1250,6 +1544,7 @@ void loop() {
     if (!ptpOp(OP_SDIOGetExtDeviceInfo, inf, 3, nullptr, 0, "keepalive")) {
       Serial.println("keepalive failed - dropping to reconnect");
       gState = ST_LOST; gDirty = true;
+      gCamErr = CE_LOST;
       cmdSock.stop(); evtSock.stop();
     }
   }
