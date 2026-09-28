@@ -12,90 +12,33 @@ is not named after one.
 
 | Path | What |
 |---|---|
-| `firmware/` | ESP32-C3 firmware, the current working build |
-| `slicer/` | The Creality Print time lapse G-code box and the matching machine end G-code, as pasted into the slicer |
-| `console/` | Web dashboard: printer profiles, park-point picker, and generators for the time lapse box, end G-code and start line |
-| `archive/` | Every superseded approach, in five dated eras. Read `archive/README.md` before reusing anything from it. |
+| `firmware/` | ESP32-C3 firmware, with its own web page at `http://procam.local/` |
+| `console/` | Printer profiles, park-point picker, and generators for the slicer blocks |
+| `slicer/` | The time lapse G-code box and machine end G-code, as pasted into the slicer |
+| `NOTES.md` | Project memory: current state, next step, decisions, and the pitfalls |
 
-## Project continuity lives in the AI-OS vault
+**Read `NOTES.md` before changing anything.** Most of this project's rules were
+learned the hard way on real hardware, and several are not obvious from the code.
 
-This repo holds the code. Status, next actions and the decision log stay in the
-Obsidian vault, because the agent tooling there depends on them:
-
-`~/Documents/Obsidian/AI-OS/Projects/procam-timelapse-trigger/`
-
-- `NOW.md` — current state and the exact next action
-- `decisions.md` — why each earlier approach was dropped
-- `state.md` — what is done, in progress, and unverified
-
-Check `NOW.md` before changing anything here.
-
-## Credentials
-
-Wi-Fi and host settings are not in the repo. Before flashing:
+## Firmware
 
 ```bash
-cd firmware && cp secrets.example.h secrets.h   # then edit it
+cd firmware && cp secrets.example.h secrets.h   # then fill it in
 ```
 
-`secrets.h` is gitignored. The sketch compiles without it using placeholder
-defaults, so a missing secrets.h shows up as a failed Wi-Fi join, not a build
-error.
+`secrets.h` holds the WiFi, camera address, default printer and OTA password,
+and is gitignored. Build for ESP32-C3 with the partition scheme **Minimal SPIFFS
+(1.9MB APP with OTA)**. After the first USB flash, updates can go over WiFi.
+Build and flash details are in `NOTES.md`.
 
-## Running the console
+## Console
 
-It is one static HTML file with no build step and no backend. Open it directly,
-or serve the `console/` directory:
+One static HTML file, no build step. Serve `console/` over **plain HTTP** on the
+printers' network:
 
 ```bash
 python3 -m http.server 8080 --directory console
 ```
 
-**Serve it over plain HTTP on the printer's network** if you want the live
-Moonraker controls (jog test, test fire, homed-state readout). A page served
-over HTTPS cannot reach a `http://192.168.x.x` printer — browsers block it as
-mixed content — so on Netlify or any HTTPS host the generator still works but
-the live controls stay disabled and say why. Serving locally also needs
-`cors_domains` in `moonraker.conf` to allow the page's origin.
-
-### Hosting it on the LAN
-
-Two ways, both serving `console/` over plain HTTP so the live Moonraker
-controls work. LAN only in both cases - the page can move the toolhead.
-
-- `deploy/nginx/` - plain nginx on a normal Linux box, e.g. a VM. Nothing
-  installed on the TrueNAS host, so nothing is lost on a TrueNAS update or
-  config restore.
-- `deploy/truenas/` - Docker Compose stack for Dockge, if you would rather not
-  manage a VM.
-
-A published copy lives at:
-https://claude.ai/code/artifact/b2bf91ae-2da3-4bde-854e-c1375d9bcb47
-
-To update that copy rather than create a second one, publish with its URL
-explicitly — the file path moved when this repo was created, and publishing a
-new path silently makes a new artifact.
-
-## Things that will bite you
-
-- **Square brackets.** Creality Print template-parses the whole G-code box,
-  comments included, and reads any `[...]` as a slicer variable. `[layer_num]`
-  on the M117 line must be the only one in the file, or the slice fails with
-  "Variable does not exist". The console enforces this at runtime.
-- **M117, not RESPOND.** RESPOND needs a `respond` section the K2 Pro's stock
-  `printer.cfg` does not have — confirmed by "Unknown command:RESPOND" in
-  Fluidd. M117 writes to `display_status`, which is already active.
-- **Jog before you print.** Send `G1 X<park> Y<park> F6000` with the printer
-  idle and the nozzle clear of the bed first. An out-of-range move mid-print
-  aborts the whole job, not just one photo.
-- **Not every printer can do this.** The method needs Moonraker. Anycubic's
-  stock firmware does not expose it (needs rooting); Bambu never does.
-- **Ooze lands wherever your slicer sends the head next.** The nozzle drips
-  while it holds still for the dwell. If the slicer's prime tower runs before
-  the head returns to the model, the ooze is wiped there and you never see it.
-  If it goes straight back to the object, the blob lands on the print - that is
-  what happened on a Snapmaker U1 and why that era needed a purge pad. Creality
-  Print orders it correctly, confirmed against real sliced g-code. Check any
-  other slicer before trusting it.
-- **Token must match.** `TRIGGER_TOKEN` in the firmware has to equal the token
-  in the M117 line, or nothing fires.
+HTTPS works for generating G-code, but browsers block an HTTPS page from calling
+a plain-HTTP printer, so the live controls stay off there.
