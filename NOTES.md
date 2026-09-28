@@ -73,7 +73,11 @@ CLI="/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/
 "$CLI" compile --fqbn esp32:esp32:esp32c3:PartitionScheme=min_spiffs,CDCOnBoot=cdc <sketch-folder>
 ```
 
-- ESP32 core 3.3.11, libraries **WebSockets** (Links2004) and **U8g2**.
+- ESP32 core 3.3.12 (Espressif "esp32" package, board **ESP32C3 Dev Module** -
+  not the separate "Arduino ESP32 Boards" package), libraries **WebSockets**
+  (Links2004) and **U8g2**. Also set Tools > USB CDC On Boot > Enabled, or the
+  Serial Monitor stays blank on this board. After a core update the IDE's board
+  picker can go empty until the IDE is fully quit and reopened.
 - The sketch is `firmware/firmware.ino` because the Arduino IDE requires the
   `.ino` to match its folder name. Do not rename either one: on a mismatch the IDE
   offers to move the `.ino` into a new folder, leaves `secrets.h` behind, and the
