@@ -668,6 +668,11 @@ var SLICERS = {
                      Unconfirmed models get the lines commented out.
 
    measured = bed, travel limits and end macro were read from the printer itself.
+
+   safePark = where the manufacturer's own timelapse block parks, taken from the
+   printer's stock slicer profile. Off the bed is normally a warning; this spot is
+   the exception, because the maker designed it - over the purge area, so dwell
+   ooze falls there instead of on the print. SparkX i7: X267 Y110.
      style "stock" - the macro moves the head no matter what, so the pose cannot
                      be held. Its measured lift and park point are recorded here
                      and written into the generated block.
@@ -692,6 +697,7 @@ var CATALOG = {
     sparkxi7:{ name:"SparkX i7",     x:260, y:260, z:255, mr:"stock", measured:true,
                travel:{ x:[-16,279], y:[-7,280] },
                end:{ style:"stock", lift:50, parkX:267, parkY:199 },
+               safePark:{ x:267, y:110 },
                host:"192.168.100.30:7125" },
     e3v3ke  :{ name:"Ender-3 V3 KE", x:220, y:220, z:240, mr:"stock" }
   }},
@@ -774,7 +780,7 @@ function load(){
   var seeds = [
     mk("k2pro",    "K2 Pro",    0, 300),
     mk("k2plus",   "K2 Plus",   0, 350),
-    mk("sparkxi7", "SparkX i7", 0, 260)
+    mk("sparkxi7", "SparkX i7", 267, 110)
   ];
   DB = { profiles: seeds, activeId: seeds[0].id };
 }
@@ -933,6 +939,11 @@ function bedClearance(){
   return Math.min(P.parkX, P.bedX-P.parkX, P.parkY, P.bedY-P.parkY);
 }
 function offBed(){ return bedClearance() < 0; }
+function safePark(){ return P.model !== "custom" && model().safePark || null; }
+function atSafePark(){
+  var sp = safePark();
+  return !!sp && Math.abs(P.parkX - sp.x) < 0.26 && Math.abs(P.parkY - sp.y) < 0.26;
+}
 function anchorName(){
   var fx = P.parkX/P.bedX, fy = P.parkY/P.bedY;
   var vert = fy>0.66 ? "back" : (fy<0.34 ? "front" : "mid");
@@ -964,6 +975,8 @@ function refreshReadout(){
       pill.className = "pill is-bad"; $("safeTxt").textContent = "Outside travel limits";
     } else if(c < 1){
       pill.className = "pill is-bad"; $("safeTxt").textContent = "On the travel limit";
+    } else if(atSafePark()){
+      pill.className = "pill is-ok"; $("safeTxt").textContent = "Maker's timelapse park";
     } else if(b < 0){
       pill.className = "pill is-warn"; $("safeTxt").textContent = "Off the bed, " + fmt(c) + " mm of travel left";
     } else {
@@ -1063,7 +1076,10 @@ function buildGcode(){
   L.push("; Profile : " + P.label);
   L.push("; Slicer  : " + sl.name + ", " + sl.path);
   L.push("; Park    : X"+fmt(P.parkX)+" Y"+fmt(P.parkY)+", "+anchorName()+", "+fmt(clearance())+" mm inside the "+(lim().known ? "travel limits" : "bed edge"));
-  if(offBed()){
+  if(atSafePark()){
+    L.push("; This is Creality's own timelapse park for this printer, from its stock");
+    L.push("; profile: off the bed over the purge area, so dwell ooze falls there.");
+  } else if(offBed()){
     L.push("; NOTE this park point is off the printable bed, inside the machine's");
     L.push("; travel limits. Check the nozzle really clears the bed carrier, wiper");
     L.push("; and chamber wall at first-layer height before running it unattended.");
@@ -1112,8 +1128,15 @@ function buildGcode(){
   L.push("; the nozzle already clear of the bed:");
   L.push(";   " + jogCommand());
   L.push("; An out-of-range move mid-print aborts the whole job, not just one photo.");
+  if(sl.seq){
+    L.push(";");
+    L.push("; Runs from layer 1 on, and never in vase mode or By object printing:");
+    L.push("; parking would break a vase spiral, and a 2 mm lift does not clear a");
+    L.push("; taller part already finished. Same guard as Creality's own block.");
+  }
   L.push(line);
   L.push("");
+  if(sl.seq) L.push("{if !spiral_mode && print_sequence != \"by object\" && layer_num != 0}");
   L.push("SAVE_GCODE_STATE NAME=procam");
   L.push("");
   L.push("G91");
@@ -1132,6 +1155,7 @@ function buildGcode(){
   L.push("RESTORE_GCODE_STATE NAME=procam MOVE=1 MOVE_SPEED=" + P.restore);
   L.push("; back to the resume point. The slicer's own retract and deretract");
   L.push("; bracket this block, so there is no manual retract here.");
+  if(sl.seq) L.push("{endif}");
   return L.join("\n");
 }
 
@@ -1283,8 +1307,15 @@ function renderParkNotes(){
     out += note("bad","\u2715","X"+fmt(P.parkX)+" Y"+fmt(P.parkY)+" is outside this printer's travel limits. Klipper would refuse the move with \"Move out of range\", which aborts the whole print.");
   } else if(c < 1){
     out += note("bad","!","Exactly on the travel limit, with <b>"+fmt(c)+" mm</b> to spare. Legal, but any offset applied later tips it out of range and aborts the print mid-way. Move a few mm in.");
+  } else if(atSafePark()){
+    out += note("ok","\u2713","This is <b>Creality's own timelapse park</b> for this printer, from its stock slicer profile. Off the bed on purpose: the nozzle waits over the purge area, so dwell ooze falls there instead of on your print.");
   } else if(b < 0){
     out += note("warn","!","<b>Off the bed</b> by "+fmt(-b)+" mm, with "+fmt(c)+" mm of travel left. Klipper allows it, but travel limits are not physical clearance &mdash; past the plate edge the nozzle can meet the bed carrier, a wiper or the chamber wall, and the park sits only "+P.zlift+" mm up at the first layer. Jog there at low Z before trusting it. Ooze will also land inside the machine rather than on the bed.");
+  }
+  var sp = safePark();
+  if(sp && !atSafePark()){
+    out += note("flat","i","Creality's own timelapse block parks this printer at <b>X"+sp.x+" Y"+sp.y+"</b>, over the purge area. "
+      + "<button type=\"button\" class=\"btn tiny\" data-safepark=\"1\">Use X"+sp.x+" Y"+sp.y+"</button>");
   }
   el.innerHTML = out;
 }
@@ -1562,6 +1593,10 @@ $("mrHost").addEventListener("input", function(){
   renderProfiles(); regenerate(); save();
 });
 
+$("parkNotes").addEventListener("click", function(ev){
+  if(!ev.target.closest("[data-safepark]")) return;
+  var sp = safePark(); if(sp){ setPark(sp.x, sp.y, {}); pulseEcho(); }
+});
 $("pad").addEventListener("click", function(ev){
   var b = ev.target.closest("button"); if(!b) return;
   var a = anchors()[+b.dataset.i];

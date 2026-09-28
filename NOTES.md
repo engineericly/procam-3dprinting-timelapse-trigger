@@ -30,6 +30,14 @@ sliced file.
   limits and the head was driven there idle - but no print has run with it.
 - Machine end G-code that ends the print in the pose of the last frame and takes
   one final frame. Untested on a real print.
+- Every generated time lapse box - the K2 Pro's included - is now wrapped in
+  Creality's own guard, `{if !spiral_mode && print_sequence != "by object" &&
+  layer_num != 0}`. That changed the K2 Pro's print-proven box, so slice once and
+  check the block appears from layer 1 on before trusting it.
+- The SparkX i7 parks at **X267 Y110**, Creality's own timelapse position from its
+  stock profile: off the bed over the purge area, so dwell ooze falls there. Its
+  stock timelapse block (`M5001 ...`, the printer's built-in camera) and stock end
+  G-code (which moves to X0 Y180) are replaced by ours.
 - Firmware web page (`http://procam.local/`): photo, record, camera address,
   printer list, errors explained, and OTA updates. **Compiled cleanly, not yet
   flashed.** The board still runs the previous build and was stuck at LINKING,
@@ -121,8 +129,15 @@ CLI="/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/
   straight to the object puts the blob on the print; that is what forced a purge
   pad on the Snapmaker U1. Check this on any new printer or slicer, and keep the
   prime tower enabled.
-- **Print By layer.** The time lapse box only lifts 2 mm, which does not clear a
-  taller part already finished in *By object* mode.
+- **By object and vase mode are skipped.** The time lapse box only lifts 2 mm,
+  which does not clear a taller part already finished in *By object* mode, and
+  parking would break a vase spiral - so the box carries Creality's guard and
+  simply does nothing in those modes (AnycubicSlicer lacks the variables, so the
+  guard is only generated for Orca-family slicers).
+- **`M5001` is Creality's built-in camera timelapse** ("Capture images during
+  printing to generate a time-lapse video"), a firmware command, not a macro.
+  Replacing the stock block turns the printer's own camera timelapse off; add
+  `M5001 P15` after the M117 line to keep both (untested).
 
 **Printers**
 
@@ -179,8 +194,9 @@ CLI="/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/
 - A temporary diagnostic `Serial.printf("   WS TEXT ...")` in `webSocketEvent()`
   logs every websocket frame. Harmless noise; remove once triggering is confirmed
   on the new build.
-- The K2 Plus and SparkX i7 park points (X0 Y350, X0 Y260) are inside their
-  measured travel limits but have not been jogged to by hand, unlike the K2 Pro's.
+- The K2 Plus park point (X0 Y350) is inside its measured travel limits but has
+  not been jogged to by hand, unlike the K2 Pro's. The SparkX's X267 Y110 is
+  Creality's own, so it is proven by their stock profile.
 - The camera's stills/movie mode cannot be switched remotely; no verified PTP
   property for it on the FX30.
 

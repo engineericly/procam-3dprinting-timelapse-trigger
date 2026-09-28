@@ -56,8 +56,13 @@
 ; dwell, lengthening retraction slightly, or (as a later step, needing one
 ; SSH macro) bringing back the same height-capped oval purge pad used on
 ; the Snapmaker setup.
+;
+; Runs from layer 1 on, and never in vase mode or By object printing:
+; parking would break a vase spiral, and a 2 mm lift does not clear a
+; taller part already finished. Same guard as Creality's own block.
 ; ===========================================================================
 
+{if !spiral_mode && print_sequence != "by object" && layer_num != 0}
 SAVE_GCODE_STATE NAME=procam
 
 G91
@@ -76,3 +81,4 @@ G4 P1200                         ; hold still while the shutter fires
 RESTORE_GCODE_STATE NAME=procam MOVE=1 MOVE_SPEED=300
 ; crosses back to the resume point - no manual retract/un-retract here,
 ; Creality Print's own retract/deretract pairing handles it
+{endif}
