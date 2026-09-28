@@ -55,7 +55,14 @@ sliced file.
 |---|---|---|---|---|
 | Creality K2 Pro | 192.168.100.199:7125 | 300 x 300 x 300 | X -8.9..302, Y -6.5..302 | Verified: limits and `END_PRINT` read from the machine |
 | Creality SparkX i7 | 192.168.100.30:7125 (also 4408) | 260 x 260 x 255 | X -16..279, Y -7..280 | Verified the same way. Its `END_PRINT` is a different kind - see below |
-| Creality K2 Plus | 192.168.100.254:7125 | 350 x 350 x 350 (published) | unknown | **Unverified** - it was off when checked |
+| Creality K2 Plus | 192.168.100.254:7125 | 350 x 350 x 350 | X -7.7..352.5, Y -6.2..352 | Verified: limits read from the machine; its end macros are identical to the K2 Pro's |
+
+All three answer Moonraker on 7125 (checked 2026-09-28 with all three on).
+
+The K2 Plus's `END_PRINT` differs from the K2 Pro's in one useful way: it ends
+without `M84`, so the motors stay powered after a print and the bed cannot sag.
+Its `END_PRINT_Z_SAFE` and `END_PRINT_POINT` are line-for-line identical to the
+K2 Pro's, so the same end-G-code override applies.
 
 Camera: Sony FX30 at 192.168.100.240, PTP/IP port 15740, joined to the same
 router in PC Remote mode.
@@ -165,8 +172,8 @@ CLI="/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/
 - A temporary diagnostic `Serial.printf("   WS TEXT ...")` in `webSocketEvent()`
   logs every websocket frame. Harmless noise; remove once triggering is confirmed
   on the new build.
-- The K2 Plus needs checking when powered on: travel limits, and its
-  `END_PRINT_POINT` body before its end-G-code override is enabled.
+- The K2 Plus and SparkX i7 park points (X0 Y350, X0 Y260) are inside their
+  measured travel limits but have not been jogged to by hand, unlike the K2 Pro's.
 - The camera's stills/movie mode cannot be switched remotely; no verified PTP
   property for it on the FX30.
 

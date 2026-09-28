@@ -663,8 +663,11 @@ var SLICERS = {
      style "k2"    - K2 Pro shape: END_PRINT_Z_SAFE lifts, END_PRINT_POINT drops
                      the bed to half height, both gated on
                      PRINTER_PARAM.max_z_position. Zeroing it around END_PRINT
-                     skips both. Confirmed live on the K2 Pro only; elsewhere the
-                     lines are generated commented out.
+                     skips both. Confirmed on the K2 Pro, and on the K2 Plus by
+                     diffing its live macros against the K2 Pro's - identical.
+                     Unconfirmed models get the lines commented out.
+
+   measured = bed, travel limits and end macro were read from the printer itself.
      style "stock" - the macro moves the head no matter what, so the pose cannot
                      be held. Its measured lift and park point are recorded here
                      and written into the generated block.
@@ -680,12 +683,13 @@ var CATALOG = {
     k2pro   :{ name:"K2 Pro",        x:300, y:300, z:300, mr:"stock", verified:true,
                travel:{ x:[-8.9,302], y:[-6.5,302] }, end:{ style:"k2", maxZ:300, verified:true },
                host:"192.168.100.199:7125" },
-    k2plus  :{ name:"K2 Plus",       x:350, y:350, z:350, mr:"stock", end:{ style:"k2", maxZ:350 },
+    k2plus  :{ name:"K2 Plus",       x:350, y:350, z:350, mr:"stock", measured:true,
+               travel:{ x:[-7.7,352.5], y:[-6.2,352] }, end:{ style:"k2", maxZ:350, verified:true },
                host:"192.168.100.254:7125" },
     k1max   :{ name:"K1 Max",        x:300, y:300, z:300, mr:"stock", end:{ style:"k2", maxZ:300 } },
     k1c     :{ name:"K1C",           x:220, y:220, z:250, mr:"stock", end:{ style:"k2", maxZ:250 } },
     k1      :{ name:"K1",            x:220, y:220, z:250, mr:"stock", end:{ style:"k2", maxZ:250 } },
-    sparkxi7:{ name:"SparkX i7",     x:260, y:260, z:255, mr:"stock",
+    sparkxi7:{ name:"SparkX i7",     x:260, y:260, z:255, mr:"stock", measured:true,
                travel:{ x:[-16,279], y:[-7,280] },
                end:{ style:"stock", lift:50, parkX:267, parkY:199 },
                host:"192.168.100.30:7125" },
@@ -759,9 +763,9 @@ function load(){
       if(o && o.profiles && o.profiles.length){ DB = o; return; }
     }
   }catch(e){}
-  /* The three machines on this network. Park points are back-left corners:
-     inside measured travel limits where those are known, otherwise one edge
-     margin in from the bed, which is the conservative guess. */
+  /* The three machines on this network. Park points are back-left corners,
+     all inside travel limits read from the printers themselves. Only the K2
+     Pro's has been jogged to by hand. */
   var mk = function(model, label, px, py){
     var pr = defaults("creality", model, label);
     pr.parkX = px; pr.parkY = py;
@@ -769,7 +773,7 @@ function load(){
   };
   var seeds = [
     mk("k2pro",    "K2 Pro",    0, 300),
-    mk("k2plus",   "K2 Plus",  10, 340),
+    mk("k2plus",   "K2 Plus",   0, 350),
     mk("sparkxi7", "SparkX i7", 0, 260)
   ];
   DB = { profiles: seeds, activeId: seeds[0].id };
@@ -849,6 +853,8 @@ function renderPrinterNote(){
 
   if(m.verified){
     out += note("ok","✓","M117 over Moonraker's <code>display_status</code> was confirmed working on this exact model. RESPOND was tested here and fails, which is why the box uses M117.");
+  } else if(m.measured){
+    out += note("flat","i","Bed, travel limits and end macro read from this printer. It has <code>display_status</code> and no <code>respond</code> section, so M117 is the right trigger &mdash; a real print has not confirmed it on this model yet.");
   } else if(m.mr !== "none"){
     out += note("flat","i","Bed size is the published build volume, not a measurement from your machine. The RESPOND-fails/M117-works finding was verified on a <b>Creality K2 Pro</b> &mdash; likely the same on any stock Klipper printer, but unconfirmed here.");
   }
